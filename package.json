@@ -1,12 +1,12 @@
 {
-  "name": "afip-worker",
+  "name": "afip-worker-demo",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "afip.js": "^0.6.0"
+    "afip.js": "^0.7.0",
+    "express": "^4.18.2"
   }
 }
