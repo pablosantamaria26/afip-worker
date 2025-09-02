@@ -1,37 +1,38 @@
 const express = require("express");
 const fs = require("fs");
-const Afip = require("afip.js"); // usamos la librería correcta de AFIP
+const Afip = require("afip.js");
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// 🔑 Cargar certificados desde Render
+// 🔑 Certificados cargados desde Render
 const cert = fs.readFileSync("/etc/secrets/certificado.txt");
 const key = fs.readFileSync("/etc/secrets/clave.txt");
 
-// Configuración AFIP
+// 🚀 Configuración AFIP
 const afip = new Afip({
-  CUIT: 23332382314,   // ⚠️ reemplazá este número por tu CUIT real
-  production: true,    // true = producción, false = homologación/test
-  cert,                // certificado
-  key,                 // clave privada
+  CUIT: 23332382314, // 👈 reemplazá por TU CUIT real
+  production: true,  // true = AFIP producción, false = homologación
+  cert,              // archivo certificado
+  key                // archivo clave privada
 });
 
-// ✅ Ruta de prueba
+// 🌐 Ruta de prueba
 app.get("/", (req, res) => res.send("Worker conectado con AFIP ✅"));
 
-// 📄 Ruta para emitir factura
+// 📑 Endpoint para emitir factura
 app.post("/", async (req, res) => {
   try {
     const data = req.body;
 
+    // Ejemplo de factura A
     const factura = {
       CantReg: 1,
-      PtoVta: 1,      // Punto de venta que configuraste en AFIP
-      CbteTipo: 1,    // 1 = Factura A (podés cambiar a 6 = Factura B)
+      PtoVta: 1,
+      CbteTipo: 1, // 1 = Factura A
       Concepto: 1,
-      DocTipo: 80,    // 80 = CUIT
-      DocNro: Number(data.DocNro || "20111111112"), // CUIT cliente
+      DocTipo: 80, // 80 = CUIT
+      DocNro: Number(data.DocNro || "20111111112"),
       CbteDesde: 1,
       CbteHasta: 1,
       CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
@@ -46,7 +47,7 @@ app.post("/", async (req, res) => {
 
     res.json({ ok: true, result });
   } catch (e) {
-    console.error("❌ Error facturación:", e.message);
+    console.error("❌ Error facturando:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
