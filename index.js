@@ -1,16 +1,18 @@
 const express = require("express");
-const Afip = require("afip");
+const Afip = require("@afipsdk/afip.js");
+
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 // ⚠️ IMPORTANTE: reemplazá este número por TU CUIT real
 const afip = new Afip({
-  CUIT: 23332382314, // 👈 PONÉ TU CUIT REAL AQUÍ
-  cert: "/etc/secrets/certificado.p12", // lo subiste en Render
-  key: "/etc/secrets/clave.key",        // lo subiste en Render
-  production: true                      // true = AFIP real, false = homologación/test
+  CUIT: 23332382314,
+  cert: "/etc/secrets/certificado.p12",
+  key: "/etc/secrets/clave.key",
+  production: true
 });
+
 
 // Ruta de prueba
 app.get("/", (req, res) => res.send("Worker conectado con AFIP ✅"));
