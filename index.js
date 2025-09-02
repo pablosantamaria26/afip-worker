@@ -7,12 +7,12 @@ app.use(express.json({ limit: "2mb" }));
 
 // 🔑 Certificados cargados desde Render
 const cert = fs.readFileSync("/etc/secrets/certificado.txt");
-const key = fs.readFileSync("/etc/secrets/clave.key"); // 👈 acá va .key
+const key = fs.readFileSync("/etc/secrets/clave.key"); // tu clave privada
 
 // 🚀 Configuración AFIP
 const afip = new Afip({
-  CUIT: 23332382314, // 👈 reemplazá por TU CUIT real
-  production: true,  // true = producción, false = homologación
+  CUIT: 23332382314, // 👈 reemplazá por tu CUIT real
+  production: false, // ⚠️ false = homologación, true = producción real
   cert,
   key,
 });
@@ -20,18 +20,17 @@ const afip = new Afip({
 // 🌐 Ruta de prueba
 app.get("/", (req, res) => res.send("Worker conectado con AFIP ✅"));
 
-// 📑 Endpoint para emitir factura
+// 📑 Endpoint para emitir factura M (productos)
 app.post("/", async (req, res) => {
   try {
     const data = req.body;
 
-    // Ejemplo de factura A
     const factura = {
-      CantReg: 1,
-      PtoVta: 1,
-      CbteTipo: 1, // 1 = Factura A
-      Concepto: 1,
-      DocTipo: 80, // 80 = CUIT
+      CantReg: 1,        // cantidad de comprobantes
+      PtoVta: 1,         // tu punto de venta habilitado
+      CbteTipo: 51,      // 51 = Factura M
+      Concepto: 1,       // 1 = Productos
+      DocTipo: 80,       // 80 = CUIT
       DocNro: Number(data.DocNro || "20111111112"),
       CbteDesde: 1,
       CbteHasta: 1,
