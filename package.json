@@ -5,8 +5,9 @@
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "afip-apis": "^1.0.0"
+ "dependencies": {
+  "express": "^4.18.2",
+  "afip.js": "^1.1.0"
+
   }
 }
