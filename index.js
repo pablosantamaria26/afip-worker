@@ -1,20 +1,15 @@
 const express = require("express");
-const fs = require("fs");
-const { Afip } = require("afip-apis");
+const Afip = require("afip");
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// 🔑 Cargar certificados desde Render Secrets
-const cert = fs.readFileSync("/etc/secrets/certificado.p12");
-const key = fs.readFileSync("/etc/secrets/clave.key");
-
-// Configuración AFIP
+// ⚠️ IMPORTANTE: reemplazá este número por TU CUIT real
 const afip = new Afip({
-  CUIT: 23323823184, // 👈 tu CUIT
-  production: true,  // 👈 ahora usamos AFIP real
-  cert,              // certificado
-  key,               // clave privada
+  CUIT: 23332382314, // 👈 PONÉ TU CUIT REAL AQUÍ
+  cert: "/etc/secrets/certificado.p12", // lo subiste en Render
+  key: "/etc/secrets/clave.key",        // lo subiste en Render
+  production: true                      // true = AFIP real, false = homologación/test
 });
 
 // Ruta de prueba
@@ -25,17 +20,17 @@ app.post("/", async (req, res) => {
   try {
     const data = req.body;
 
-    // Ejemplo de factura A (vos podés ajustar)
+    // 📄 Ejemplo de factura A (ajustá según lo que necesites)
     const factura = {
       CantReg: 1,
-      PtoVta: 1,
-      CbteTipo: 1, // Factura A
-      Concepto: 1,
-      DocTipo: 80, // CUIT
+      PtoVta: 1,             // Punto de venta habilitado en AFIP
+      CbteTipo: 1,           // Factura A (si sos Responsable Inscripto)
+      Concepto: 1,           // Productos
+      DocTipo: 80,           // 80 = CUIT, 96 = DNI
       DocNro: Number(data.DocNro || "20111111112"),
       CbteDesde: 1,
       CbteHasta: 1,
-      CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
+      CbteFch: parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, "")),
       ImpTotal: Number(data.ImpTotal || 1000.00),
       ImpNeto: Number(data.ImpTotal || 1000.00),
       ImpIVA: 0,
@@ -43,6 +38,7 @@ app.post("/", async (req, res) => {
       MonCotiz: 1,
     };
 
+    // 📌 Crear el próximo comprobante en AFIP
     const result = await afip.ElectronicBilling.createNextVoucher(factura);
 
     res.json({ ok: true, result });
@@ -52,5 +48,6 @@ app.post("/", async (req, res) => {
   }
 });
 
+// Puerto de Render
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Worker AFIP escuchando en", PORT));
