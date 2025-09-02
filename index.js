@@ -1,34 +1,56 @@
-const fs = require("fs");
 const express = require("express");
+const fs = require("fs");
+const { Afip } = require("afip-apis");
+
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// === Lectura de los secretos desde Render ===
-const cert = fs.readFileSync("/etc/secrets/certificado.txt");
-const key = fs.readFileSync("/etc/secrets/clave.txt");
+// 🔑 Cargar certificados desde Render Secrets
+const cert = fs.readFileSync("/etc/secrets/certificado.p12");
+const key = fs.readFileSync("/etc/secrets/clave.key");
 
-// ⚠️ Por ahora no usamos cert/key, pero los dejamos listos
-// más adelante se los pasamos a la librería de AFIP
+// Configuración AFIP
+const afip = new Afip({
+  CUIT: 23323823184, // 👈 tu CUIT
+  production: true,  // 👈 ahora usamos AFIP real
+  cert,              // certificado
+  key,               // clave privada
+});
 
-// Salud para probar en el navegador
-app.get("/", (req, res) => res.send("OK"));
+// Ruta de prueba
+app.get("/", (req, res) => res.send("Worker conectado con AFIP ✅"));
 
-// Mock temporal (CAE de prueba)
-let corr = 1000; // correlativo de prueba
-app.post("/", (req, res) => {
+// Ruta para emitir factura
+app.post("/", async (req, res) => {
   try {
-    const p = req.body || {};
-    if (!p.ImpTotal || !p.DocNro) {
-      return res.status(400).json({ ok: false, error: "Payload incompleto" });
-    }
-    const cae = "TEST" + String(Date.now()).slice(-12);
-    const vto = "20991231";
-    const nro = ++corr;
-    res.json({ ok: true, cae, vto, nro });
+    const data = req.body;
+
+    // Ejemplo de factura A (vos podés ajustar)
+    const factura = {
+      CantReg: 1,
+      PtoVta: 1,
+      CbteTipo: 1, // Factura A
+      Concepto: 1,
+      DocTipo: 80, // CUIT
+      DocNro: Number(data.DocNro || "20111111112"),
+      CbteDesde: 1,
+      CbteHasta: 1,
+      CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
+      ImpTotal: Number(data.ImpTotal || 1000.00),
+      ImpNeto: Number(data.ImpTotal || 1000.00),
+      ImpIVA: 0,
+      MonId: "PES",
+      MonCotiz: 1,
+    };
+
+    const result = await afip.ElectronicBilling.createNextVoucher(factura);
+
+    res.json({ ok: true, result });
   } catch (e) {
-    res.status(400).json({ ok: false, error: String(e) });
+    console.error(e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Worker escuchando en", PORT));
+app.listen(PORT, () => console.log("Worker AFIP escuchando en", PORT));
