@@ -7,14 +7,14 @@ app.use(express.json({ limit: "2mb" }));
 
 // 🔑 Certificados cargados desde Render
 const cert = fs.readFileSync("/etc/secrets/certificado.txt");
-const key = fs.readFileSync("/etc/secrets/clave.txt");
+const key = fs.readFileSync("/etc/secrets/clave.key"); // 👈 acá va .key
 
 // 🚀 Configuración AFIP
 const afip = new Afip({
   CUIT: 23332382314, // 👈 reemplazá por TU CUIT real
-  production: true,  // true = AFIP producción, false = homologación
-  cert,              // archivo certificado
-  key                // archivo clave privada
+  production: true,  // true = producción, false = homologación
+  cert,
+  key,
 });
 
 // 🌐 Ruta de prueba
