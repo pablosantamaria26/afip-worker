@@ -25,38 +25,6 @@ app.post("/facturar", async (req, res) => {
   try {
     const data = req.body;
 
-    // --- SECCIÓN DE DEPURACIÓN PARA CHEQUEAR EL CUIT ---
-    const cuitReceptor = Number(data.DocNro || "20111111112");
-
-    // ✅ Corregido: La función se llama directamente desde el objeto 'afip'
-    const persona = await afip.getTaxpayerDetails(cuitReceptor);
-
-    // Si no se encuentra información, la AFIP lo considerará un error
-    if (!persona) {
-      console.error(
-        `❌ CUIT ${cuitReceptor} no encontrado o no se pudo obtener información fiscal.`
-      );
-      return res.status(400).json({
-        ok: false,
-        error: `El CUIT ${cuitReceptor} no se encontró en la base de datos de la AFIP.`,
-      });
-    }
-
-    // Comprobar la condición de IVA y loguear el resultado
-    if (
-      persona.hasOwnProperty("iva") &&
-      persona.iva === "Responsable Inscripto"
-    ) {
-      console.log(
-        `✅ CUIT ${cuitReceptor} es Responsable Inscripto según la AFIP. ¡Todo en orden!`
-      );
-    } else {
-      console.warn(
-        `⚠️ Atención: El CUIT ${cuitReceptor} no es Responsable Inscripto. Su condición es: ${persona.iva}. La factura podría ser rechazada.`
-      );
-    }
-    // --- FIN DE LA SECCIÓN DE DEPURACIÓN ---
-
     // 🔹 Totales
     const impTotal = Number(data.ImpTotal || 1000.0);
     const impNeto = +(impTotal / 1.21).toFixed(2);
@@ -73,9 +41,10 @@ app.post("/facturar", async (req, res) => {
       CbteTipo: 51, // Factura M
       Concepto: 1, // Productos
       DocTipo: 80, // CUIT
-      DocNro: cuitReceptor,
+      DocNro: Number(data.DocNro || "20111111112"),
 
-      // Se usa la condición de IVA enviada por el cliente
+      // ✅ Usa el valor de la condición de IVA enviado por el cliente
+      // Si no se proporciona, por defecto se usa 11 (Responsable Inscripto).
       IdIVAReceptor: Number(data.IdIVAReceptor || 11),
 
       CbteDesde: proxNro,
@@ -109,6 +78,4 @@ app.post("/facturar", async (req, res) => {
 
 // 🚪 Servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("🚀 Worker AFIP escuchando en puerto", PORT)
-);
+app.listen(PORT, () => console.log("🚀 Worker AFIP escuchando en puerto", PORT));
