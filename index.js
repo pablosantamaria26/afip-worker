@@ -9,15 +9,15 @@ app.use(express.json({ limit: "2mb" }));
 const key  = fs.readFileSync("/etc/secrets/PabloSantamaria.key", "utf8");
 const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
 
-// 🚀 Configuración AFIP (por ahora en homologación)
+// 🚀 Configuración AFIP (homologación por ahora)
 const afip = new Afip({
-  CUIT: 23332382314,   // 👈 tu CUIT real (11 dígitos, sin guiones)
+  CUIT: 23332382314,   // 👈 tu CUIT real
   production: false,   // false = homologación, true = producción real
   cert,
   key,
 });
 
-// 🌐 Ruta de prueba (health check)
+// 🌐 Ruta de prueba
 app.get("/", (req, res) => res.send("✅ Worker conectado con AFIP y listo"));
 
 // 📑 Endpoint para emitir Factura M con IVA 21%
@@ -25,16 +25,16 @@ app.post("/facturar", async (req, res) => {
   try {
     const data = req.body;
 
-    // 🔹 Total de la factura (con IVA incluido)
+    // 🔹 Totales
     const impTotal = Number(data.ImpTotal || 1000.00);
     const impNeto  = +(impTotal / 1.21).toFixed(2);
     const impIVA   = +(impTotal - impNeto).toFixed(2);
 
-    // 🔹 Próximo número de comprobante válido
-    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51); // PtoVta=1, Tipo=51 (Factura M)
+    // 🔹 Número de comprobante
+    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51);
     const proxNro = lastVoucher + 1;
 
-    // 🔹 Datos de la factura
+    // 🔹 Factura
     const factura = {
       CantReg: 1,
       PtoVta: 1,
@@ -43,8 +43,8 @@ app.post("/facturar", async (req, res) => {
       DocTipo: 80,        // CUIT
       DocNro: Number(data.DocNro || "20111111112"),
 
-      // ⚠️ Campo obligatorio según RG 5616
-      CondicionIvaReceptorId: Number(data.IvaCond || 1), // 1 = Responsable Inscripto
+      // ⚠️ Campo obligatorio RG 5616
+      IvaCondicion: Number(data.IvaCondicion || 1), // 1 = Responsable Inscripto
 
       CbteDesde: proxNro,
       CbteHasta: proxNro,
@@ -66,16 +66,16 @@ app.post("/facturar", async (req, res) => {
       MonCotiz: 1,
     };
 
-    // 🔹 Emitimos el comprobante
+    // 🔹 Emitir comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
-
     res.json({ ok: true, result });
+
   } catch (e) {
     console.error("❌ Error facturando:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// 🚪 Arranque del servidor
+// 🚪 Servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("🚀 Worker AFIP escuchando en puerto", PORT));
