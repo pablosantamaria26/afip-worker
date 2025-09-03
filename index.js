@@ -35,36 +35,37 @@ app.post("/facturar", async (req, res) => {
     const proxNro = lastVoucher + 1;
 
     // 🔹 Factura
-    const factura = {
-      CantReg: 1,
-      PtoVta: 1,
-      CbteTipo: 51,       // Factura M
-      Concepto: 1,        // Productos
-      DocTipo: 80,        // CUIT
-      DocNro: Number(data.DocNro || "20111111112"),
+const factura = {
+  CantReg: 1,
+  PtoVta: 1,
+  CbteTipo: 51,       // Factura M
+  Concepto: 1,        // Productos
+  DocTipo: 80,        // CUIT
+  DocNro: Number(data.DocNro || "20111111112"),
 
-      // ⚠️ Campo obligatorio RG 5616
-      IvaCondicion: Number(data.IvaCondicion || 1), // 1 = Responsable Inscripto
+  // 👉 Campo obligatorio según RG 5616
+  IdIVAReceptor: 1,   // siempre Responsable Inscripto
 
-      CbteDesde: proxNro,
-      CbteHasta: proxNro,
-      CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
+  CbteDesde: proxNro,
+  CbteHasta: proxNro,
+  CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
 
-      ImpNeto: impNeto,
-      ImpIVA: impIVA,
-      ImpTotal: impTotal,
+  ImpNeto: impNeto,
+  ImpIVA: impIVA,
+  ImpTotal: impTotal,
 
-      Iva: [
-        {
-          Id: 5,           // 21% en AFIP
-          BaseImp: impNeto,
-          Importe: impIVA
-        }
-      ],
+  Iva: [
+    {
+      Id: 5,           // 21% en AFIP
+      BaseImp: impNeto,
+      Importe: impIVA
+    }
+  ],
 
-      MonId: "PES",
-      MonCotiz: 1,
-    };
+  MonId: "PES",
+  MonCotiz: 1,
+};
+
 
     // 🔹 Emitir comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
