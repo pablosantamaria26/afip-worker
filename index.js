@@ -43,7 +43,8 @@ app.post("/facturar", async (req, res) => {
       DocTipo: 80, // CUIT
       DocNro: Number(data.DocNro || "20111111112"),
 
-      // ✅ CAMBIO: Asegúrate de que la clave sea exactamente "IdIVAReceptor"
+      // ✅ SOLUCIÓN: Usamos el nombre de clave correcto y lo fijamos manualmente.
+      // La AFIP espera "IdIVAReceptor" exactamente.
       IdIVAReceptor: Number(data.IdIVAReceptor || 11),
 
       CbteDesde: proxNro,
@@ -65,9 +66,6 @@ app.post("/facturar", async (req, res) => {
       MonId: "PES",
       MonCotiz: 1,
     };
-
-    // ⚠️ Línea de depuración: imprime el objeto de la factura antes de enviarlo
-    console.log("Objeto 'factura' que se enviará a AFIP:", JSON.stringify(factura, null, 2));
 
     // 🔹 Emitir comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
