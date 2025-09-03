@@ -60,7 +60,7 @@ app.post("/facturar", async (req, res) => {
 
     // 🔹 Emitir comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
-    res.json({ ok: true, result });
+    res.json({ ok: true, result: { ...result, CbteDesde: factura.CbteDesde } });
   } catch (e) {
     console.error("❌ Error facturando:", e);
     res.status(500).json({ ok: false, error: e.message });
