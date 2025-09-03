@@ -44,7 +44,7 @@ const factura = {
   DocNro: Number(data.DocNro || "20111111112"),
 
   // 👉 Campo obligatorio según RG 5616
-  IdIVAReceptor: 1,   // siempre Responsable Inscripto
+  IdIVAReceptor: 11,   // siempre Responsable Inscripto
 
   CbteDesde: proxNro,
   CbteHasta: proxNro,
