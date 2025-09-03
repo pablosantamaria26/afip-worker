@@ -9,12 +9,10 @@ app.use(express.json({ limit: "2mb" }));
 const key  = fs.readFileSync("/etc/secrets/PabloSantamaria.key", "utf8");
 const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
 
-
-
-// 🚀 Configuración AFIP
+// 🚀 Configuración AFIP (por ahora en homologación)
 const afip = new Afip({
   CUIT: 23332382314,   // 👈 tu CUIT real (11 dígitos, sin guiones)
-  production: false,    // true = producción, false = homologación
+  production: false,   // false = homologación, true = producción real
   cert,
   key,
 });
@@ -27,46 +25,46 @@ app.post("/facturar", async (req, res) => {
   try {
     const data = req.body;
 
-    // 🔹 Tomamos total de la factura (con IVA incluido)
+    // 🔹 Total de la factura (con IVA incluido)
     const impTotal = Number(data.ImpTotal || 1000.00);
-    const impNeto = +(impTotal / 1.21).toFixed(2);
-    const impIVA = +(impTotal - impNeto).toFixed(2);
+    const impNeto  = +(impTotal / 1.21).toFixed(2);
+    const impIVA   = +(impTotal - impNeto).toFixed(2);
 
-    // 🔹 Buscamos el próximo número de comprobante disponible
-    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51); // PtoVta=1, Tipo=51 Factura M
+    // 🔹 Próximo número de comprobante válido
+    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51); // PtoVta=1, Tipo=51 (Factura M)
     const proxNro = lastVoucher + 1;
 
-const factura = {
-  CantReg: 1,
-  PtoVta: 1,
-  CbteTipo: 51,       // Factura M
-  Concepto: 1,        // Productos
-  DocTipo: 80,        // CUIT
-  DocNro: Number(data.DocNro || "20111111112"),
+    // 🔹 Datos de la factura
+    const factura = {
+      CantReg: 1,
+      PtoVta: 1,
+      CbteTipo: 51,        // Factura M
+      Concepto: 1,         // 1 = Productos
+      DocTipo: 80,         // 80 = CUIT
+      DocNro: Number(data.DocNro || "20111111112"),
 
-  // 👇 Nueva línea: condición IVA del receptor (Responsable Inscripto)
-  CondicionIVAReceptor: 1,
+      // Condición frente al IVA del receptor → siempre Responsable Inscripto
+      CondicionIVAReceptor: 1,
 
-  CbteDesde: 1,
-  CbteHasta: 1,
-  CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
+      CbteDesde: proxNro,
+      CbteHasta: proxNro,
+      CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
 
-  ImpNeto: impNeto,
-  ImpIVA: impIVA,
-  ImpTotal: impTotal,
+      ImpNeto: impNeto,
+      ImpIVA: impIVA,
+      ImpTotal: impTotal,
 
-  Iva: [
-    {
-      Id: 5,           // 21% en AFIP
-      BaseImp: impNeto,
-      Importe: impIVA
-    }
-  ],
+      Iva: [
+        {
+          Id: 5,           // 21% en AFIP
+          BaseImp: impNeto,
+          Importe: impIVA
+        }
+      ],
 
-  MonId: "PES",
-  MonCotiz: 1,
-};
-
+      MonId: "PES",
+      MonCotiz: 1,
+    };
 
     // 🔹 Emitimos el comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
@@ -78,5 +76,6 @@ const factura = {
   }
 });
 
+// 🚪 Arranque del servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("🚀 Worker AFIP escuchando en puerto", PORT));
