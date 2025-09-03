@@ -36,32 +36,37 @@ app.post("/facturar", async (req, res) => {
     const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51); // PtoVta=1, Tipo=51 Factura M
     const proxNro = lastVoucher + 1;
 
-    const factura = {
-      CantReg: 1,                // Siempre 1 comprobante por vez
-      PtoVta: 1,                 // Punto de venta
-      CbteTipo: 51,              // 51 = Factura M
-      Concepto: 1,               // 1 = Productos
-      DocTipo: 80,               // 80 = CUIT (cliente)
-      DocNro: Number(data.DocNro || "20111111112"), // CUIT del cliente
-      CbteDesde: proxNro,
-      CbteHasta: proxNro,
-      CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")), // AAAAMMDD
+const factura = {
+  CantReg: 1,
+  PtoVta: 1,
+  CbteTipo: 51,       // Factura M
+  Concepto: 1,        // Productos
+  DocTipo: 80,        // CUIT
+  DocNro: Number(data.DocNro || "20111111112"),
 
-      ImpNeto: impNeto,
-      ImpIVA: impIVA,
-      ImpTotal: impTotal,
+  // 👇 Nueva línea: condición IVA del receptor (Responsable Inscripto)
+  CondicionIVAReceptor: 1,
 
-      Iva: [
-        {
-          Id: 5,         // 5 = 21% en AFIP
-          BaseImp: impNeto,
-          Importe: impIVA
-        }
-      ],
+  CbteDesde: 1,
+  CbteHasta: 1,
+  CbteFch: parseInt(new Date().toISOString().slice(0,10).replace(/-/g,"")),
 
-      MonId: "PES",
-      MonCotiz: 1,
-    };
+  ImpNeto: impNeto,
+  ImpIVA: impIVA,
+  ImpTotal: impTotal,
+
+  Iva: [
+    {
+      Id: 5,           // 21% en AFIP
+      BaseImp: impNeto,
+      Importe: impIVA
+    }
+  ],
+
+  MonId: "PES",
+  MonCotiz: 1,
+};
+
 
     // 🔹 Emitimos el comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
