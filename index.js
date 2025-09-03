@@ -9,18 +9,18 @@ app.use(express.json({ limit: "2mb" }));
 const key  = fs.readFileSync("/etc/secrets/PabloSantamaria.key", "utf8");
 const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
 
-// 🚀 Configuración AFIP
+// 🚀 Configuración AFIP (por ahora en homologación)
 const afip = new Afip({
-  CUIT: 23332382314,   // tu CUIT real
-  production: false,   // false = homologación, true = producción
+  CUIT: 23332382314,   // 👈 tu CUIT real (11 dígitos, sin guiones)
+  production: false,   // false = homologación, true = producción real
   cert,
   key,
 });
 
-// 🌐 Ruta de prueba
+// 🌐 Ruta de prueba (health check)
 app.get("/", (req, res) => res.send("✅ Worker conectado con AFIP y listo"));
 
-// 📑 Endpoint para emitir Factura M
+// 📑 Endpoint para emitir Factura M con IVA 21%
 app.post("/facturar", async (req, res) => {
   try {
     const data = req.body;
@@ -30,8 +30,8 @@ app.post("/facturar", async (req, res) => {
     const impNeto  = +(impTotal / 1.21).toFixed(2);
     const impIVA   = +(impTotal - impNeto).toFixed(2);
 
-    // 🔹 Próximo número de comprobante
-    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51);
+    // 🔹 Próximo número de comprobante válido
+    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51); // PtoVta=1, Tipo=51 (Factura M)
     const proxNro = lastVoucher + 1;
 
     // 🔹 Datos de la factura
@@ -43,8 +43,8 @@ app.post("/facturar", async (req, res) => {
       DocTipo: 80,        // CUIT
       DocNro: Number(data.DocNro || "20111111112"),
 
-      // 👇 Campo obligatorio según RG 5616
-      CondicionIvaReceptor: Number(data.IvaCond || 1), // 1 = Responsable Inscripto
+      // ⚠️ Campo obligatorio según RG 5616
+      CondicionIvaReceptorId: Number(data.IvaCond || 1), // 1 = Responsable Inscripto
 
       CbteDesde: proxNro,
       CbteHasta: proxNro,
@@ -66,7 +66,7 @@ app.post("/facturar", async (req, res) => {
       MonCotiz: 1,
     };
 
-    // 🔹 Emitimos
+    // 🔹 Emitimos el comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
 
     res.json({ ok: true, result });
@@ -76,6 +76,6 @@ app.post("/facturar", async (req, res) => {
   }
 });
 
-// 🚪 Servidor
+// 🚪 Arranque del servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("🚀 Worker AFIP escuchando en puerto", PORT));
