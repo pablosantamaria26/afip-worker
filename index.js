@@ -44,7 +44,6 @@ app.post("/facturar", async (req, res) => {
       DocNro: Number(data.DocNro || "20111111112"),
 
       // ✅ Usa el valor de la condición de IVA enviado por el cliente
-      // Si no se proporciona, por defecto se usa 11 (Responsable Inscripto).
       IdIVAReceptor: Number(data.IdIVAReceptor || 11),
 
       CbteDesde: proxNro,
@@ -66,6 +65,9 @@ app.post("/facturar", async (req, res) => {
       MonId: "PES",
       MonCotiz: 1,
     };
+    
+    // ⚠️ Línea de depuración: imprime el objeto de la factura antes de enviarlo
+    console.log("Objeto 'factura' que se enviará a AFIP:", JSON.stringify(factura, null, 2));
 
     // 🔹 Emitir comprobante
     const result = await afip.ElectronicBilling.createVoucher(factura);
