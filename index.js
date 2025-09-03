@@ -13,7 +13,7 @@ const key = fs.readFileSync("/etc/secrets/clave.key");
 // 🚀 Configuración AFIP
 const afip = new Afip({
   CUIT: 23332382314,   // 👈 tu CUIT real (11 dígitos, sin guiones)
-  production: true,    // true = producción, false = homologación
+  production: false,    // true = producción, false = homologación
   cert,
   key,
 });
