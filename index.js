@@ -43,7 +43,7 @@ app.post("/facturar", async (req, res) => {
       DocTipo: 80, // CUIT
       DocNro: Number(data.DocNro || "20111111112"),
 
-      // ✅ Usa el valor de la condición de IVA enviado por el cliente
+      // ✅ CAMBIO: Asegúrate de que la clave sea exactamente "IdIVAReceptor"
       IdIVAReceptor: Number(data.IdIVAReceptor || 11),
 
       CbteDesde: proxNro,
@@ -65,7 +65,7 @@ app.post("/facturar", async (req, res) => {
       MonId: "PES",
       MonCotiz: 1,
     };
-    
+
     // ⚠️ Línea de depuración: imprime el objeto de la factura antes de enviarlo
     console.log("Objeto 'factura' que se enviará a AFIP:", JSON.stringify(factura, null, 2));
 
