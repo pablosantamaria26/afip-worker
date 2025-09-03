@@ -6,8 +6,9 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 // 🔑 Certificados cargados desde Render
-const cert = fs.readFileSync("/etc/secrets/certificado.txt");
-const key = fs.readFileSync("/etc/secrets/clave.key");
+const cert = fs.readFileSync("/etc/secrets/certificado.txt", "utf8");
+const key = fs.readFileSync("/etc/secrets/clave.key", "utf8");
+
 
 
 // 🚀 Configuración AFIP
