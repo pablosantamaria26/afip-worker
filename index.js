@@ -27,29 +27,38 @@ app.post("/facturar", async (req, res) => {
 
     // --- SECCIÓN DE DEPURACIÓN PARA CHEQUEAR EL CUIT ---
     const cuitReceptor = Number(data.DocNro || "20111111112");
-    
-    // Obtener información del CUIT del cliente desde el servicio de AFIP
-    const persona = await afip.ElectronicBilling.getTaxpayerDetails(cuitReceptor);
-    
+
+    // ✅ Corregido: La función se llama directamente desde el objeto 'afip'
+    const persona = await afip.getTaxpayerDetails(cuitReceptor);
+
     // Si no se encuentra información, la AFIP lo considerará un error
     if (!persona) {
-        console.error(`❌ CUIT ${cuitReceptor} no encontrado o no se pudo obtener información fiscal.`);
-        return res.status(400).json({ 
-            ok: false, 
-            error: `El CUIT ${cuitReceptor} no se encontró en la base de datos de la AFIP.` 
-        });
+      console.error(
+        `❌ CUIT ${cuitReceptor} no encontrado o no se pudo obtener información fiscal.`
+      );
+      return res.status(400).json({
+        ok: false,
+        error: `El CUIT ${cuitReceptor} no se encontró en la base de datos de la AFIP.`,
+      });
     }
 
     // Comprobar la condición de IVA y loguear el resultado
-    if (persona.hasOwnProperty('iva') && persona.iva === 'Responsable Inscripto') {
-        console.log(`✅ CUIT ${cuitReceptor} es Responsable Inscripto según la AFIP. ¡Todo en orden!`);
+    if (
+      persona.hasOwnProperty("iva") &&
+      persona.iva === "Responsable Inscripto"
+    ) {
+      console.log(
+        `✅ CUIT ${cuitReceptor} es Responsable Inscripto según la AFIP. ¡Todo en orden!`
+      );
     } else {
-        console.warn(`⚠️ Atención: El CUIT ${cuitReceptor} no es Responsable Inscripto. Su condición es: ${persona.iva}. La factura podría ser rechazada.`);
+      console.warn(
+        `⚠️ Atención: El CUIT ${cuitReceptor} no es Responsable Inscripto. Su condición es: ${persona.iva}. La factura podría ser rechazada.`
+      );
     }
     // --- FIN DE LA SECCIÓN DE DEPURACIÓN ---
 
     // 🔹 Totales
-    const impTotal = Number(data.ImpTotal || 1000.00);
+    const impTotal = Number(data.ImpTotal || 1000.0);
     const impNeto = +(impTotal / 1.21).toFixed(2);
     const impIVA = +(impTotal - impNeto).toFixed(2);
 
@@ -100,4 +109,6 @@ app.post("/facturar", async (req, res) => {
 
 // 🚪 Servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Worker AFIP escuchando en puerto", PORT));
+app.listen(PORT, () =>
+  console.log("🚀 Worker AFIP escuchando en puerto", PORT)
+);
