@@ -9,16 +9,31 @@ app.use(express.json({ limit: "2mb" }));
 const key = fs.readFileSync("/etc/secrets/PabloSantamaria.key", "utf8");
 const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
 
-// 🚀 Configuración AFIP (por ahora homologación)
+// 📝 Logs de verificación (solo para debugging en Render)
+console.log("🔑 Key inicia con:", key.slice(0, 30));
+console.log("📜 Cert inicia con:", cert.slice(0, 30));
+
+// 🚀 Configuración AFIP (producción real)
 const afip = new Afip({
-  CUIT: 23332382314,   // 👈 tu CUIT real
-  production: true,   // false = homologación, true = producción real
+  CUIT: 23332382314,   // 👈 tu CUIT real sin guiones
+  production: true,    // true = producción real
   cert,
   key,
 });
 
 // 🌐 Ruta de prueba (health check)
 app.get("/", (req, res) => res.send("✅ Worker conectado con AFIP y listo"));
+
+// 🧪 Ruta de prueba de conexión con AFIP
+app.get("/test-afip", async (req, res) => {
+  try {
+    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(5, 51);
+    res.json({ ok: true, lastVoucher });
+  } catch (e) {
+    console.error("❌ Error test-afip:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 // 📑 Endpoint para emitir Factura M con IVA 21%
 app.post("/facturar", async (req, res) => {
@@ -31,7 +46,7 @@ app.post("/facturar", async (req, res) => {
     const impIVA   = +(impTotal - impNeto).toFixed(2);
 
     // 🔹 Número de comprobante
-    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(1, 51);
+    const lastVoucher = await afip.ElectronicBilling.getLastVoucher(5, 51);
     const proxNro = lastVoucher + 1;
 
     // 🔹 Datos de la factura
@@ -42,9 +57,7 @@ app.post("/facturar", async (req, res) => {
       Concepto: 1,    // Productos
       DocTipo: Number(data.DocTipo || 80),  // 80 = CUIT
       DocNro: Number(data.DocNro || "20111111112"),
-
-      // ⚠️ Campo obligatorio según RG 5616 (lo dejamos EXACTO como vos lo lograste)
-      CondicionIVAReceptorId: Number(data.IdIVAReceptor || 5), 
+      CondicionIVAReceptorId: Number(data.IdIVAReceptor || 5),
 
       CbteDesde: proxNro,
       CbteHasta: proxNro,
