@@ -12,7 +12,7 @@ const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
 // 🚀 Configuración AFIP (por ahora homologación)
 const afip = new Afip({
   CUIT: 23332382314,   // 👈 tu CUIT real
-  production: false,   // false = homologación, true = producción real
+  production: true,   // false = homologación, true = producción real
   cert,
   key,
 });
@@ -37,7 +37,7 @@ app.post("/facturar", async (req, res) => {
     // 🔹 Datos de la factura
     const factura = {
       CantReg: 1,
-      PtoVta: 1,
+      PtoVta: 5,
       CbteTipo: 51,   // Factura M
       Concepto: 1,    // Productos
       DocTipo: Number(data.DocTipo || 80),  // 80 = CUIT
