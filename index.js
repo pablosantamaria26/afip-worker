@@ -5,20 +5,12 @@ const Afip = require("afip.js");
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
-// 🔑 Certificados cargados desde Render
-const key = fs.readFileSync("/etc/secrets/PabloSantamaria.key", "utf8");
-const cert = fs.readFileSync("/etc/secrets/certificado.crt", "utf8");
-
-// 📝 Logs de verificación (solo para debugging en Render)
-console.log("🔑 Key inicia con:", key.slice(0, 30));
-console.log("📜 Cert inicia con:", cert.slice(0, 30));
-
-// 🚀 Configuración AFIP (producción real)
+// 🚀 Configuración AFIP (Producción real, usando variables de entorno)
 const afip = new Afip({
-  CUIT: 23332382314,   // 👈 tu CUIT real sin guiones
-  production: true,    // true = producción real
-  cert,
-  key,
+  CUIT: 23332382314,      // tu CUIT sin guiones
+  production: true,       // true = producción
+  cert: process.env.AFIP_CERT,
+  key: process.env.AFIP_KEY,
 });
 
 // 🌐 Ruta de prueba (health check)
