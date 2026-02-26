@@ -1,12 +1,25 @@
 {
-  "name": "afip-worker-demo",
+  "name": "app_facturacion",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
   "dependencies": {
-    "express": "^4.18.2",
-    "afip.js": "github:afipsdk/afip.js"
+    "@afipsdk/afip.js": "^1.2.2",
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "nodemailer": "^8.0.1",
+    "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.3",
+    "qrcode": "^1.5.4",
+    "tesseract.js": "^7.0.0"
   }
 }
