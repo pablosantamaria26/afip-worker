@@ -116,8 +116,8 @@ const afip = new Afip({
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false,
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
 });
 const uploadDir = path.join(process.cwd(), "uploads");
