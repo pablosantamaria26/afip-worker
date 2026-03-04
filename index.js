@@ -1740,13 +1740,21 @@ app.post("/facturar", async (req, res) => {
     html: htmlMail,
   });
 } else {
-  await transporter.sendMail({
-    from: `"Mercado Limpio" <${GMAIL_USER}>`,
-    to: "distribuidoramercadolimpio@gmail.com",
-    subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
-    html: htmlMail,
-  });
-}
+  if (resendClient) {
+    await resendClient.emails.send({
+      from: "Mercado Limpio <onboarding@resend.dev>",
+      to: "distribuidoramercadolimpio@gmail.com",
+      subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
+      html: htmlMail,
+    });
+  } else {
+    await transporter.sendMail({
+      from: `"Mercado Limpio" <${GMAIL_USER}>`,
+      to: "distribuidoramercadolimpio@gmail.com",
+      subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
+      html: htmlMail,
+    });
+  }
 
     let finalMsg = `Factura autorizada con éxito.`;
     if (resultados.length > 1) finalMsg = `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`;
