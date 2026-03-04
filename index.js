@@ -1764,6 +1764,20 @@ app.post("/facturar", async (req, res) => {
   }
 });
 
+// --- RUTA DE PRUEBA: /admin/test-resumen?token=mercadolimpio ---
+// Abrí esta URL en el navegador para probar el email sin esperar el cron
+app.get("/admin/test-resumen", async (req, res) => {
+  if (req.query.token !== "mercadolimpio") return res.status(401).send("No autorizado.");
+  try {
+    const mes  = req.query.mes  ? Number(req.query.mes)  : null;
+    const anio = req.query.anio ? Number(req.query.anio) : null;
+    await enviarResumenMensual(anio, mes);
+    res.send("✅ Resumen enviado a distribuidoramercadolimpio@gmail.com");
+  } catch(e) {
+    res.status(500).send("❌ Error: " + (e?.message || e));
+  }
+});
+
 // ============================
 // ✅ START SERVER
 // ============================
@@ -2027,19 +2041,7 @@ setInterval(async () => {
 
 console.log("🗓️  [Cron] Resumen mensual activado → el 1° de cada mes a las 08:00 (AR) llega a distribuidoramercadolimpio@gmail.com");
 
-// --- RUTA DE PRUEBA: /admin/test-resumen?token=mercadolimpio ---
-// Abrí esta URL en el navegador para probar el email sin esperar el cron
-app.get("/admin/test-resumen", async (req, res) => {
-  if (req.query.token !== "mercadolimpio") return res.status(401).send("No autorizado.");
-  try {
-    const mes  = req.query.mes  ? Number(req.query.mes)  : null;
-    const anio = req.query.anio ? Number(req.query.anio) : null;
-    await enviarResumenMensual(anio, mes);
-    res.send("✅ Resumen enviado a distribuidoramercadolimpio@gmail.com");
-  } catch(e) {
-    res.status(500).send("❌ Error: " + (e?.message || e));
-  }
-});
+
 
 // --- GUARDADO AUTOMÁTICO: se llama desde el endpoint /facturar ---
 // YA INTEGRADO: buscá en el endpoint /facturar la línea:
