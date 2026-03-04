@@ -115,10 +115,11 @@ const afip = new Afip({
 });
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
 });
-
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
