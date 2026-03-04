@@ -1,4 +1,5 @@
 "use strict";
+require("dotenv").config();
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
 const Resend = require("resend").Resend;                                                          // ← AGREGAR
@@ -14,7 +15,7 @@ const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
-require("dotenv").config();
+
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
