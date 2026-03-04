@@ -1978,7 +1978,9 @@ async function enviarResumenMensual(anioForzar, mesForzar) {
 
   const htmlMail  = buildResumenHTMLProfesional(anio, mes, facturas);
   const subject   = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
-  const toAddress = "distribuidoramercadolimpio@gmail.com";
+  const toAddress = process.env.RESEND_API_KEY
+  ? "santamariapablodaniel@gmail.com"   // Resend solo permite tu propio email
+  : "distribuidoramercadolimpio@gmail.com"; // Gmail puede enviar a cualquiera
 
   if (resendClient) {
     await resendClient.emails.send({
