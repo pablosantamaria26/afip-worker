@@ -2,6 +2,8 @@
 
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
+const Resend = require("resend").Resend;
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -1730,14 +1732,21 @@ app.post("/facturar", async (req, res) => {
         </div>
       `;
 
-      await transporter.sendMail({
-        from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-        to: emailAEnviar,
-        subject,
-        html: mailHtml,
-        attachments: mailAttachments
-      });
-    }
+      if (resendClient) {
+  await resendClient.emails.send({
+    from: "Mercado Limpio <onboarding@resend.dev>",
+    to: "distribuidoramercadolimpio@gmail.com",
+    subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
+    html: htmlMail,
+  });
+} else {
+  await transporter.sendMail({
+    from: `"Mercado Limpio" <${GMAIL_USER}>`,
+    to: "distribuidoramercadolimpio@gmail.com",
+    subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
+    html: htmlMail,
+  });
+}
 
     let finalMsg = `Factura autorizada con éxito.`;
     if (resultados.length > 1) finalMsg = `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`;
