@@ -1,7 +1,8 @@
 "use strict";
-
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
+const Resend = require("resend").Resend;                                                          // ← AGREGAR
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null; // ← AGREGAR
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -13,13 +14,10 @@ const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
-
 require("dotenv").config();
-
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
-
 const APP_VERSION = "2026-02-26.GEMINI-MOTOR-DOBLE-SMART-LOGS.DOMFIX.DESC.FINAL";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
