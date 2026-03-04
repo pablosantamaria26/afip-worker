@@ -2,8 +2,6 @@
 
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
-const Resend = require("resend").Resend;
-const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -117,11 +115,10 @@ const afip = new Afip({
 });
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
+  service: "gmail",
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
 });
+
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -1732,29 +1729,14 @@ app.post("/facturar", async (req, res) => {
         </div>
       `;
 
-      if (resendClient) {
-  await resendClient.emails.send({
-    from: "Mercado Limpio <onboarding@resend.dev>",
-    to: "distribuidoramercadolimpio@gmail.com",
-    subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
-    html: htmlMail,
-  });
-} else {
-  if (resendClient) {
-    await resendClient.emails.send({
-      from: "Mercado Limpio <onboarding@resend.dev>",
-      to: "distribuidoramercadolimpio@gmail.com",
-      subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
-      html: htmlMail,
-    });
-  } else {
-    await transporter.sendMail({
-      from: `"Mercado Limpio" <${GMAIL_USER}>`,
-      to: "distribuidoramercadolimpio@gmail.com",
-      subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
-      html: htmlMail,
-    });
-  }
+      await transporter.sendMail({
+        from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+        to: emailAEnviar,
+        subject,
+        html: mailHtml,
+        attachments: mailAttachments
+      });
+    }
 
     let finalMsg = `Factura autorizada con éxito.`;
     if (resultados.length > 1) finalMsg = `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`;
@@ -1779,20 +1761,6 @@ app.post("/facturar", async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ message: err.message, detail: err?.data || null });
-  }
-});
-
-// --- RUTA DE PRUEBA: /admin/test-resumen?token=mercadolimpio ---
-// Abrí esta URL en el navegador para probar el email sin esperar el cron
-app.get("/admin/test-resumen", async (req, res) => {
-  if (req.query.token !== "mercadolimpio") return res.status(401).send("No autorizado.");
-  try {
-    const mes  = req.query.mes  ? Number(req.query.mes)  : null;
-    const anio = req.query.anio ? Number(req.query.anio) : null;
-    await enviarResumenMensual(anio, mes);
-    res.send("✅ Resumen enviado a distribuidoramercadolimpio@gmail.com");
-  } catch(e) {
-    res.status(500).send("❌ Error: " + (e?.message || e));
   }
 });
 
@@ -1825,12 +1793,8 @@ process.on("uncaughtException", (err) => {
 
 // ================================================================
 // ✅ MÓDULO: GUARDAR FACTURAS + RESUMEN MENSUAL AUTOMÁTICO
-// Pegá este bloque entero AL FINAL de tu index.js
-// El resumen llega a: distribuidoramercadolimpio@gmail.com
-// Se envía automáticamente el 1° de cada mes a las 08:00 (Argentina)
 // ================================================================
 
-// --- BASE DE DATOS LOCAL (archivo facturas_db.jsonl en la raíz del proyecto) ---
 const DB_FACTURAS = path.join(process.cwd(), "facturas_db.jsonl");
 
 function guardarFacturaEnDB({ cuitCliente, rec, nro, pv, cae, impTotal, pdfPublicUrl, condicionVenta, fecha, chunkItems }) {
@@ -1871,13 +1835,11 @@ function leerFacturasDelMes(anio, mes) {
     .filter(f => f && f.anio === anio && f.mes === mes);
 }
 
-// --- TEMPLATE HTML DEL RESUMEN MENSUAL ---
 function buildResumenHTMLProfesional(anio, mes, facturas) {
   const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const nombreMes = MESES[mes] || `Mes ${mes}`;
   const totalGeneral = facturas.reduce((a, f) => a + Number(f.total || 0), 0);
 
-  // Agrupar por cliente
   const porCliente = {};
   for (const f of facturas) {
     if (!porCliente[f.cuitCliente]) porCliente[f.cuitCliente] = { nombre: f.nombreCliente, cuit: f.cuitCliente, total: 0, cant: 0 };
@@ -1916,10 +1878,7 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
 <html lang="es">
 <head><meta charset="UTF-8"/><title>Resumen ${nombreMes} ${anio}</title></head>
 <body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI',Arial,sans-serif;">
-
 <div style="max-width:900px;margin:0 auto;padding:30px 20px;">
-
-  <!-- HEADER -->
   <div style="background:linear-gradient(135deg,#1e3a5f 0%,#0f172a 100%);border-radius:16px 16px 0 0;padding:32px 36px;border-bottom:3px solid #3b82f6;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div>
@@ -1934,8 +1893,6 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
       </div>
     </div>
   </div>
-
-  <!-- KPIs -->
   <div style="display:flex;background:#1e293b;border-left:1px solid #334155;border-right:1px solid #334155;">
     <div style="flex:1;padding:22px 20px;text-align:center;border-right:1px solid #334155;">
       <div style="font-size:36px;font-weight:900;color:#3b82f6;">${facturas.length}</div>
@@ -1950,8 +1907,6 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
       <div style="font-size:12px;color:#94a3b8;font-weight:700;margin-top:4px;text-transform:uppercase;letter-spacing:1px;">Clientes distintos</div>
     </div>
   </div>
-
-  <!-- DETALLE FACTURAS -->
   <div style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
     <div style="background:#1e293b;padding:16px 20px;">
       <div style="font-size:13px;font-weight:900;color:#ffffff;letter-spacing:0.5px;">📋 DETALLE COMPLETO DE FACTURAS</div>
@@ -1982,8 +1937,6 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
       </table>
     </div>
   </div>
-
-  <!-- RESUMEN POR CLIENTE -->
   <div style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;border-top:4px solid #f1f5f9;">
     <div style="background:#1e293b;padding:16px 20px;">
       <div style="font-size:13px;font-weight:900;color:#ffffff;letter-spacing:0.5px;">👥 RESUMEN POR CLIENTE</div>
@@ -2000,23 +1953,20 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
       <tbody>${filasClientes || `<tr><td colspan="4" style="padding:20px;text-align:center;color:#94a3b8;">Sin datos.</td></tr>`}</tbody>
     </table>
   </div>
-
-  <!-- FOOTER -->
   <div style="background:#1e293b;border-radius:0 0 16px 16px;padding:18px 28px;text-align:center;border:1px solid #334155;border-top:none;">
     <div style="font-size:11px;color:#475569;font-weight:700;">
       Reporte generado automáticamente el 1° de cada mes · Sistema Mercado Limpio · Facturación ARCA/AFIP
     </div>
     <div style="font-size:11px;color:#334155;margin-top:4px;">Solo para uso interno — distribuidoramercadolimpio@gmail.com</div>
   </div>
-
 </div>
 </body>
 </html>`;
 }
 
-// --- ENVÍO DEL RESUMEN ---
+// ✅ ÚNICO CAMBIO: usa Resend si está disponible, Gmail como fallback
 async function enviarResumenMensual(anioForzar, mesForzar) {
-  const hoy   = new Date(Date.now() - 3 * 60 * 60 * 1000); // hora AR
+  const hoy   = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const anio  = anioForzar || (hoy.getUTCMonth() === 0 ? hoy.getUTCFullYear() - 1 : hoy.getUTCFullYear());
   const mes   = mesForzar  || (hoy.getUTCMonth() === 0 ? 12 : hoy.getUTCMonth());
   const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -2027,23 +1977,34 @@ async function enviarResumenMensual(anioForzar, mesForzar) {
 
   console.log(`📊 [Resumen] ${MESES[mes]} ${anio}: ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`);
 
-  const htmlMail = buildResumenHTMLProfesional(anio, mes, facturas);
+  const htmlMail  = buildResumenHTMLProfesional(anio, mes, facturas);
+  const subject   = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
+  const toAddress = "distribuidoramercadolimpio@gmail.com";
 
-  await transporter.sendMail({
-    from:    `"Mercado Limpio" <${GMAIL_USER}>`,
-    to:      "distribuidoramercadolimpio@gmail.com",
-    subject: `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`,
-    html:    htmlMail,
-  });
-
-  console.log(`✅ [Resumen] Email enviado a distribuidoramercadolimpio@gmail.com`);
+  if (resendClient) {
+    await resendClient.emails.send({
+      from:    "Mercado Limpio <onboarding@resend.dev>",
+      to:      toAddress,
+      subject: subject,
+      html:    htmlMail,
+    });
+    console.log(`✅ [Resumen] Email enviado vía Resend a ${toAddress}`);
+  } else {
+    await transporter.sendMail({
+      from:    `"Mercado Limpio" <${GMAIL_USER}>`,
+      to:      toAddress,
+      subject: subject,
+      html:    htmlMail,
+    });
+    console.log(`✅ [Resumen] Email enviado vía Gmail a ${toAddress}`);
+  }
 }
 
-// --- CRON: SE EJECUTA EL 1° DE CADA MES A LAS 08:00 (ARGENTINA) ---
+// --- CRON: 1° de cada mes a las 08:00 (Argentina) ---
 let _ultimoResumenEnviado = null;
 setInterval(async () => {
   try {
-    const ahora = new Date(Date.now() - 3 * 60 * 60 * 1000); // UTC-3 Argentina
+    const ahora = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const dia   = ahora.getUTCDate();
     const hora  = ahora.getUTCHours();
     const clave = `${ahora.getUTCFullYear()}-${String(ahora.getUTCMonth()+1).padStart(2,"0")}`;
@@ -2055,19 +2016,19 @@ setInterval(async () => {
   } catch (e) {
     console.error("❌ [Cron]", e?.message || e);
   }
-}, 30 * 60 * 1000).unref?.(); // revisa cada 30 minutos
+}, 30 * 60 * 1000).unref?.();
 
 console.log("🗓️  [Cron] Resumen mensual activado → el 1° de cada mes a las 08:00 (AR) llega a distribuidoramercadolimpio@gmail.com");
 
-
-
-// --- GUARDADO AUTOMÁTICO: se llama desde el endpoint /facturar ---
-// YA INTEGRADO: buscá en el endpoint /facturar la línea:
-//   resultados.push({ nroFactura: nro, cae: result.CAE, total: impTotal, pdfUrl: pdfPublicUrl });
-// Y PEGÁ ESTO JUSTO ABAJO:
-//
-//   guardarFacturaEnDB({ cuitCliente, rec, nro, pv, cae: result.CAE, impTotal, pdfPublicUrl, condicionVenta, fecha, chunkItems });
-//
-// ================================================================
-// FIN DEL MÓDULO
-// ================================================================
+// --- RUTA DE PRUEBA ---
+app.get("/admin/test-resumen", async (req, res) => {
+  if (req.query.token !== "mercadolimpio") return res.status(401).send("No autorizado.");
+  try {
+    const mes  = req.query.mes  ? Number(req.query.mes)  : null;
+    const anio = req.query.anio ? Number(req.query.anio) : null;
+    await enviarResumenMensual(anio, mes);
+    res.send("✅ Resumen enviado a distribuidoramercadolimpio@gmail.com");
+  } catch(e) {
+    res.status(500).send("❌ Error: " + (e?.message || e));
+  }
+});
