@@ -23,6 +23,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
+const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "facturas-pdf";
 
 let supabase = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
@@ -157,8 +158,53 @@ function safeFileName(s) {
     .replace(/_+/g, "_")
     .slice(0, 80);
 }
+function guessPdfContentType() {
+  return "application/pdf";
+}
 
-function savePublicPdf(buffer, baseNameNoExt) {
+async function savePdfToSupabaseStorage(buffer, baseNameNoExt) {
+  if (!supabase) {
+    throw new Error("Supabase no está configurado");
+  }
+
+  const stamp = Date.now().toString(36) + "_" + crypto.randomBytes(4).toString("hex");
+  const fname = `${safeFileName(baseNameNoExt)}_${stamp}.pdf`;
+  const storagePath = `pdf/${fname}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: guessPdfContentType(),
+      upsert: false
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data: publicData } = supabase.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .getPublicUrl(storagePath);
+
+  const publicUrl = publicData?.publicUrl || "";
+  if (!publicUrl) {
+    throw new Error("No se pudo obtener la URL pública del PDF");
+  }
+
+  return publicUrl;
+}
+
+async function savePublicPdf(buffer, baseNameNoExt) {
+  if (supabase) {
+    try {
+      const url = await savePdfToSupabaseStorage(buffer, baseNameNoExt);
+      console.log(`✅ [Storage] PDF subido a Supabase Storage: ${url}`);
+      return url;
+    } catch (e) {
+      console.error("⚠️ [Storage] Falló subida a Supabase Storage, uso disco local:", e?.message || e);
+    }
+  }
+
   const stamp = Date.now().toString(36) + "_" + crypto.randomBytes(4).toString("hex");
   const fname = `${safeFileName(baseNameNoExt)}_${stamp}.pdf`;
   const fpath = path.join(publicPdfDir, fname);
@@ -1139,9 +1185,9 @@ try {
 let pdfPublicUrl = "";
 try {
   if (pdfBuffer?.length) {
-    pdfPublicUrl = savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-    console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
-  } else {
+  pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+  console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
+} else {
     pdfPublicUrl = String(pdfRes.file || "");
     console.warn(`⚠️ [PDF] Uso URL original de AFIPSDK: ${pdfPublicUrl}`);
   }
@@ -2078,8 +2124,8 @@ app.post("/anular-comprobante", async (req, res) => {
     let pdfPublicUrl = "";
     try {
       if (pdfBuffer?.length) {
-        pdfPublicUrl = savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
-      } else {
+  pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
+} else {
         pdfPublicUrl = String(pdfRes.file || "");
       }
     } catch (e) {
