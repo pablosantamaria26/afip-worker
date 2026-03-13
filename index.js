@@ -1004,22 +1004,16 @@ Total remito: $ ${formatMoneyAR(totalRemitoGlobal)}
       guardarFacturaEnDB({ cuitCliente, rec, nro, pv, cae: result.CAE, impTotal, pdfPublicUrl, condicionVenta, fecha, chunkItems });
     }
 
-    // ── Responder al frontend AHORA — factura autorizada ──
+       // ── Responder al frontend AHORA — factura autorizada ──
     let finalMsg = resultados.length > 1
       ? `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`
       : `Factura autorizada con éxito.`;
-    let waText = `Factura de Mercado Limpio
-Cliente: ${rec.nombre}
-CUIT: ${cuitCliente}
 
-`;
+    let waText = `Factura de Mercado Limpio\nCliente: ${rec.nombre}\nCUIT: ${cuitCliente}\n\n`;
     resultados.forEach((r, idx) => {
-      waText += `Parte ${idx + 1}: Comp. Nro ${pad(r.nroFactura, 8)} | Total: $ ${formatMoneyAR(r.total)} | CAE: ${r.cae}
-`;
-      if (r.pdfUrl) waText += `PDF: ${r.pdfUrl}
-`;
-      waText += "
-";
+      waText += `Parte ${idx + 1}: Comp. Nro ${pad(r.nroFactura, 8)} | Total: $ ${formatMoneyAR(r.total)} | CAE: ${r.cae}\n`;
+      if (r.pdfUrl) waText += `PDF: ${r.pdfUrl}\n`;
+      waText += "\n";
     });
 
     res.json({
@@ -1086,57 +1080,76 @@ process.on("uncaughtException", (err) => { console.error("❌ uncaughtException:
 // ================================================================
 const DB_FACTURAS = path.join(process.cwd(), "facturas_db.jsonl");
 
-async function guardarFacturaEnDB({ cuitCliente, rec, nro, pv, cae, impTotal, pdfPublicUrl, condicionVenta, fecha, chunkItems }) {
+async function guardarFacturaEnDB({
+  cuitCliente,
+  rec,
+  nro,
+  pv,
+  cae,
+  impTotal,
+  pdfPublicUrl,
+  condicionVenta,
+  fecha,
+  chunkItems,
+  emailAEnviar = "",
+  emailStatus = "pending",
+  emailError = ""
+}) {
   const registro = {
-    timestamp:      new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     fecha,
-    anio:           Number(String(fecha).split("-")[0]),
-    mes:            Number(String(fecha).split("-")[1]),
-    comprobante:    `A-${String(pv).padStart(5,"0")}-${String(nro).padStart(8,"0")}`,
-    nro_factura:    nro,
-    punto_venta:    pv,
-    cae:            String(cae),
-    cuit_cliente:   String(cuitCliente),
+    anio: Number(String(fecha).split("-")[0]),
+    mes: Number(String(fecha).split("-")[1]),
+    comprobante: `A-${String(pv).padStart(5, "0")}-${String(nro).padStart(8, "0")}`,
+    nro_factura: nro,
+    punto_venta: pv,
+    cae: String(cae),
+    cuit_cliente: String(cuitCliente),
     nombre_cliente: rec?.nombre || `CUIT ${cuitCliente}`,
-    domicilio:      rec?.domicilioAfip || "",
+    domicilio: rec?.domicilioAfip || "",
     condicion_venta: String(condicionVenta || ""),
-    total:          impTotal,
-    pdf_url:        pdfPublicUrl || "",
-    items:          JSON.stringify((Array.isArray(chunkItems) ? chunkItems : []).map(it => ({
-      descripcion: it.descripcion, cantidad: it.cantidad,
-      precio_con_iva: it.precioConIva, subtotal_con_iva: it.subtotalConIva,
-    }))),
+    total: impTotal,
+    pdf_url: pdfPublicUrl || "",
+    email_to: String(emailAEnviar || ""),
+    email_status: String(emailStatus || "pending"),
+    email_error: String(emailError || ""),
+    items: JSON.stringify((Array.isArray(chunkItems) ? chunkItems : []).map(it => ({
+      descripcion: it.descripcion,
+      cantidad: it.cantidad,
+      precio_con_iva: it.precioConIva,
+      subtotal_con_iva: it.subtotalConIva
+    })))
   };
 
-  // 1) Guardar en Supabase (persistente, sobrevive redeploys)
   if (supabase) {
     try {
-      const { error } = await supabase.from("facturas").insert([registro]);
+      const { error } = await supabase.from("facturas").upsert([registro], {
+        onConflict: "comprobante"
+      });
       if (error) throw error;
       if (DEBUG) log("✅ [Supabase] Factura guardada:", registro.comprobante);
     } catch (e) {
       console.error("❌ [Supabase] Error guardando factura:", e?.message || e);
-      // Si Supabase falla → igual guardamos en archivo local como backup
       _guardarEnArchivoLocal(registro);
     }
   } else {
-    // Sin Supabase: solo archivo local
     _guardarEnArchivoLocal(registro);
   }
+
+  return registro.comprobante;
 }
 
 function _guardarEnArchivoLocal(registro) {
   try {
-    // Normalizar nombres de campos para el .jsonl local (compatibilidad)
     const local = {
       ...registro,
-      nroFactura:    registro.nro_factura,
-      puntoVenta:    registro.punto_venta,
-      cuitCliente:   registro.cuit_cliente,
+      nroFactura: registro.nro_factura,
+      puntoVenta: registro.punto_venta,
+      cuitCliente: registro.cuit_cliente,
       nombreCliente: registro.nombre_cliente,
       condicionVenta: registro.condicion_venta,
-      pdfUrl:        registro.pdf_url,
-      items:         typeof registro.items === "string" ? JSON.parse(registro.items) : registro.items,
+      pdfUrl: registro.pdf_url,
+      items: typeof registro.items === "string" ? JSON.parse(registro.items) : registro.items
     };
     fs.appendFileSync(DB_FACTURAS, JSON.stringify(local) + "\n", "utf-8");
   } catch (e) {
@@ -1144,8 +1157,29 @@ function _guardarEnArchivoLocal(registro) {
   }
 }
 
+async function actualizarEstadoEmail(comprobante, status, errorMsg = "", emailTo = "") {
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      email_status: String(status || ""),
+      email_error: String(errorMsg || "")
+    };
+
+    if (emailTo) payload.email_to = String(emailTo);
+
+    const { error } = await supabase
+      .from("facturas")
+      .update(payload)
+      .eq("comprobante", comprobante);
+
+    if (error) throw error;
+  } catch (e) {
+    console.error("❌ [Supabase] Error actualizando email_status:", e?.message || e);
+  }
+}
+
 async function leerFacturasDelMes(anio, mes) {
-  // 1) Intentar Supabase primero
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -1154,28 +1188,29 @@ async function leerFacturasDelMes(anio, mes) {
         .eq("anio", anio)
         .eq("mes", mes)
         .order("fecha", { ascending: true });
+
       if (error) throw error;
       if (DEBUG) log(`✅ [Supabase] ${data.length} facturas leídas para ${mes}/${anio}`);
-      // Normalizar nombres de campos para compatibilidad con el resto del código
+
       return data.map(f => ({
         ...f,
-        nroFactura:    f.nro_factura,
-        puntoVenta:    f.punto_venta,
-        cuitCliente:   f.cuit_cliente,
+        nroFactura: f.nro_factura,
+        puntoVenta: f.punto_venta,
+        cuitCliente: f.cuit_cliente,
         nombreCliente: f.nombre_cliente,
         condicionVenta: f.condicion_venta,
-        pdfUrl:        f.pdf_url,
-        items:         typeof f.items === "string" ? JSON.parse(f.items || "[]") : (f.items || []),
+        pdfUrl: f.pdf_url,
+        items: typeof f.items === "string" ? JSON.parse(f.items || "[]") : (f.items || [])
       }));
     } catch (e) {
       console.error("❌ [Supabase] Error leyendo facturas, usando archivo local:", e?.message || e);
     }
   }
 
-  // 2) Fallback: archivo local
   if (!fs.existsSync(DB_FACTURAS)) return [];
   return fs.readFileSync(DB_FACTURAS, "utf-8")
-    .split("\n").filter(Boolean)
+    .split("\n")
+    .filter(Boolean)
     .map(l => { try { return JSON.parse(l); } catch { return null; } })
     .filter(f => f && f.anio === anio && f.mes === mes);
 }
