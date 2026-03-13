@@ -1435,6 +1435,77 @@ async function leerFacturasDelMes(anio, mes) {
 }
 
 // ================================================================
+// ✅ API RESUMEN MES PARA APP / PWA
+// ================================================================
+app.get("/admin/facturas-mes", async (req, res) => {
+  try {
+    const anio = Number(req.query.anio);
+    const mes = Number(req.query.mes);
+
+    if (!anio || !mes || mes < 1 || mes > 12) {
+      return res.status(400).json({
+        ok: false,
+        message: "Parámetros inválidos. Debés enviar anio y mes."
+      });
+    }
+
+    const facturasRaw = await leerFacturasDelMes(anio, mes);
+
+    const facturas = (Array.isArray(facturasRaw) ? facturasRaw : []).map(f => {
+      const puntoVenta = Number(f.puntoVenta || f.punto_venta || 0);
+      const nroFactura = Number(f.nroFactura || f.nro_factura || 0);
+      const cbteTipo = Number(f.cbteTipo || f.cbte_tipo || inferCbteTipoFromComprobante(f.comprobante || "") || 0);
+
+      const comprobante =
+        f.comprobante ||
+        buildComprobanteLabelByTipo(cbteTipo || CBTE_TIPO_REAL, puntoVenta, nroFactura);
+
+      const tipoCbte =
+        String(comprobante).startsWith("NC-") || cbteTipo === 3 || cbteTipo === 8 || cbteTipo === 13 || cbteTipo === 53
+          ? "NC"
+          : "FA";
+
+      const emailError = String(f.email_error || "");
+      const anulado =
+        /ANULADA POR/i.test(emailError) ||
+        Boolean(f.anulado);
+
+      return {
+        fecha: f.fecha || "",
+        comprobante,
+        tipoCbte,
+        puntoVenta,
+        nroFactura,
+        nro: nroFactura,
+        cae: String(f.cae || ""),
+        cuit: String(f.cuitCliente || f.cuit_cliente || ""),
+        nombre: String(f.nombreCliente || f.nombre_cliente || ""),
+        total: Number(f.total || 0),
+        pdfUrl: String(f.pdfUrl || f.pdf_url || ""),
+        anulado
+      };
+    });
+
+    const total = round2(facturas.reduce((acc, f) => acc + Number(f.total || 0), 0));
+
+    return res.json({
+      ok: true,
+      anio,
+      mes,
+      cantidad: facturas.length,
+      total,
+      facturas
+    });
+  } catch (err) {
+    console.error("❌ [/admin/facturas-mes]", err?.message || err);
+    return res.status(500).json({
+      ok: false,
+      message: err?.message || "Error al leer facturas del mes"
+    });
+  }
+});
+
+// ================================================================
 // ✅ RESUMEN MENSUAL (igual que antes, ahora con datos de Supabase)
 // ================================================================
 function buildResumenHTMLProfesional(anio, mes, facturas) {
