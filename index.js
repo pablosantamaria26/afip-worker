@@ -128,6 +128,12 @@ const transporter = nodemailer.createTransport({
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
 });
 
+if (!GMAIL_USER || !GMAIL_APP_PASS) {
+  console.warn("⚠️ [Email] Faltan credenciales Gmail en variables de entorno");
+} else {
+  console.log(`✅ [Email] Gmail configurado para: ${GMAIL_USER}`);
+}
+
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -1091,36 +1097,58 @@ app.post("/facturar", async (req, res) => {
         totalFinal: impTotal
       });
 
-      const pdfRes = await afip.ElectronicBilling.createPDF({
-        html: htmlPDF,
-        file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-        options: {
-          width: 8.27,
-          marginTop: 0.35,
-          marginBottom: 0.35,
-          marginLeft: 0.35,
-          marginRight: 0.35
-        }
-      });
+     const pdfRes = await afip.ElectronicBilling.createPDF({
+  html: htmlPDF,
+  file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+  options: {
+    width: 8.27,
+    marginTop: 0.35,
+    marginBottom: 0.35,
+    marginLeft: 0.35,
+    marginRight: 0.35
+  }
+});
 
-      let pdfBuffer = null;
-      try {
-        pdfBuffer = await downloadToBuffer(pdfRes.file);
-      } catch (e) {
-        errlog("⚠️ No pude bajar PDF:", e?.message);
+async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
+  let lastErr;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const buffer = await downloadToBuffer(url);
+      if (buffer && buffer.length > 0) return buffer;
+      throw new Error("PDF vacío");
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxRetries) {
+        await new Promise(res => setTimeout(res, delayMs));
       }
+    }
+  }
 
-      let pdfPublicUrl = "";
-      try {
-        if (pdfBuffer?.length) {
-          pdfPublicUrl = savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-        } else {
-          pdfPublicUrl = String(pdfRes.file || "");
-        }
-      } catch {
-        pdfPublicUrl = String(pdfRes.file || "");
-      }
+  throw lastErr || new Error("No se pudo descargar el PDF");
+}
 
+let pdfBuffer = null;
+try {
+  pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
+  console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
+} catch (e) {
+  console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
+}
+
+let pdfPublicUrl = "";
+try {
+  if (pdfBuffer?.length) {
+    pdfPublicUrl = savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+    console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
+  } else {
+    pdfPublicUrl = String(pdfRes.file || "");
+    console.warn(`⚠️ [PDF] Uso URL original de AFIPSDK: ${pdfPublicUrl}`);
+  }
+} catch (e) {
+  pdfPublicUrl = String(pdfRes.file || "");
+  console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
+}
       const comprobante = await guardarFacturaEnDB({
         cuitCliente,
         rec,
@@ -1190,8 +1218,12 @@ app.post("/facturar", async (req, res) => {
     });
 
     // ── Email en background DESPUÉS de responder al frontend ──
-    if (mailAttachments.length) {
-      setImmediate(async () => {
+setImmediate(async () => {
+  console.log("📨 [Email] Inicio proceso de envío...");
+  console.log("📨 [Email] Destino:", emailAEnviar);
+  console.log("📨 [Email] Adjuntos:", mailAttachments.length);
+  console.log("📨 [Email] Partes:", mailParts.length);
+  console.log("📨 [Email] Enviando con Gmail user:", GMAIL_USER || "(vacío)");
         try {
           const domRemitoMail = String(domicilioRemitoIn || "").trim();
           const domAfipMail = String(rec.domicilioAfip || "").trim();
@@ -1238,7 +1270,7 @@ app.post("/facturar", async (req, res) => {
           console.error("⚠️ [Email] Falló (factura ya autorizada):", mailErr?.message || mailErr);
         }
       });
-    }
+    
 
   } catch (err) {
     if (!res.headersSent) {
