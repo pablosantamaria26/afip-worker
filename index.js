@@ -894,28 +894,43 @@ app.post("/facturar", async (req, res) => {
   try {
     const pv = await getPtoVentaSeguro();
     const cuitCliente = onlyDigits(req.body.cuitCliente);
-    if (!cuitCliente || cuitCliente.length !== 11) return res.status(400).json({ message: "CUIT inválido" });
+    if (!cuitCliente || cuitCliente.length !== 11) {
+      return res.status(400).json({ message: "CUIT inválido" });
+    }
 
     const domicilioRemitoIn = String(req.body.domicilioRemito || "").trim();
-    const condicionVenta    = String(req.body.condicionVenta || EMISOR.condicionVentaDefault);
-    const emailAEnviar      = String(req.body.emailCliente || "").trim() || DEFAULT_EMAIL;
-    const subtotalBrutoIn   = Number(req.body.subtotalBruto || 0);
-    const descuentoPctIn    = Number(req.body.descuentoPct || 0);
+    const condicionVenta = String(req.body.condicionVenta || EMISOR.condicionVentaDefault);
+    const emailAEnviar = String(req.body.emailCliente || "").trim() || DEFAULT_EMAIL;
+    const subtotalBrutoIn = Number(req.body.subtotalBruto || 0);
+    const descuentoPctIn = Number(req.body.descuentoPct || 0);
     const descuentoImporteIn = Number(req.body.descuentoImporte || 0);
-    const totalFinalIn      = Number(req.body.total || req.body.totalFinal || 0);
-    const itemsIn           = Array.isArray(req.body.items) ? req.body.items : [];
+    const totalFinalIn = Number(req.body.total || req.body.totalFinal || 0);
+    const itemsIn = Array.isArray(req.body.items) ? req.body.items : [];
 
     let allItems = itemsIn.map((x) => {
-      const cantidad = Number(x.cantidad || 0), descripcion = String(x.descripcion || "").trim();
-      const precioConIva = Number(x.precioConIva || 0), subtotalConIva = Number(x.subtotalConIva || 0);
+      const cantidad = Number(x.cantidad || 0);
+      const descripcion = String(x.descripcion || "").trim();
+      const precioConIva = Number(x.precioConIva || 0);
+      const subtotalConIva = Number(x.subtotalConIva || 0);
+
       if (!cantidad || !descripcion) return null;
-      const sub  = subtotalConIva > 0 ? round2(subtotalConIva) : round2(cantidad * precioConIva);
+
+      const sub = subtotalConIva > 0 ? round2(subtotalConIva) : round2(cantidad * precioConIva);
       const unit = precioConIva > 0 ? round2(precioConIva) : (cantidad > 0 ? round2(sub / cantidad) : 0);
+
       if (!sub || !unit) return null;
-      return { cantidad, descripcion, precioConIva: unit, subtotalConIva: sub };
+
+      return {
+        cantidad,
+        descripcion,
+        precioConIva: unit,
+        subtotalConIva: sub
+      };
     }).filter(Boolean);
 
-    if (!allItems.length) return res.status(400).json({ message: "Ítems inválidos" });
+    if (!allItems.length) {
+      return res.status(400).json({ message: "Ítems inválidos" });
+    }
 
     const rec = await getReceptorDesdePadron(cuitCliente);
 
@@ -924,87 +939,231 @@ app.post("/facturar", async (req, res) => {
     if (totalFinalIn > 0 && subtotalCalc > 0) factor = totalFinalIn / subtotalCalc;
     else if (descuentoPctIn > 0) factor = 1 - (descuentoPctIn / 100);
     else if (descuentoImporteIn > 0 && subtotalCalc > 0) factor = (subtotalCalc - descuentoImporteIn) / subtotalCalc;
-    if (factor > 0 && factor < 1 && totalFinalIn > 0) allItems = applyFactorAndReconcile(allItems, factor, totalFinalIn);
+
+    if (factor > 0 && factor < 1 && totalFinalIn > 0) {
+      allItems = applyFactorAndReconcile(allItems, factor, totalFinalIn);
+    }
 
     const chunks = [];
-    for (let i = 0; i < allItems.length; i += ITEMS_POR_FACTURA) chunks.push(allItems.slice(i, i + ITEMS_POR_FACTURA));
-    const partes = chunks.map(ch => round2(ch.reduce((a, it) => a + Number(it.subtotalConIva || 0), 0)));
-    const totalRemitoGlobal = totalFinalIn > 0 ? round2(totalFinalIn) : round2(partes.reduce((a, x) => a + x, 0));
+    for (let i = 0; i < allItems.length; i += ITEMS_POR_FACTURA) {
+      chunks.push(allItems.slice(i, i + ITEMS_POR_FACTURA));
+    }
 
-    const resultados = [], fecha = todayISO(), cbteFch = yyyymmdd(fecha);
+    const partes = chunks.map(ch => round2(ch.reduce((a, it) => a + Number(it.subtotalConIva || 0), 0)));
+    const totalRemitoGlobal = totalFinalIn > 0
+      ? round2(totalFinalIn)
+      : round2(partes.reduce((a, x) => a + x, 0));
+
+    const resultados = [];
+    const fecha = todayISO();
+    const cbteFch = yyyymmdd(fecha);
     const factorUsado = (factor > 0 && factor < 1) ? factor : 1;
     let acumuladoSubBruto = 0;
-    const mailParts = [], mailAttachments = [];
+    const mailParts = [];
+    const mailAttachments = [];
 
     for (let i = 0; i < chunks.length; i++) {
       const chunkItems = chunks[i];
+
       let notaFactura = "";
       if (chunks.length > 1) {
-        notaFactura = `FACTURA PARTE ${i + 1} DE ${chunks.length}
-Total remito: $ ${formatMoneyAR(totalRemitoGlobal)}
-`;
-        partes.forEach((t, idx) => (notaFactura += `Parte ${idx + 1}: $ ${formatMoneyAR(t)}
-`));
+        notaFactura = `FACTURA PARTE ${i + 1} DE ${chunks.length}\n`;
+        notaFactura += `Total remito: $ ${formatMoneyAR(totalRemitoGlobal)}\n`;
+        partes.forEach((t, idx) => {
+          notaFactura += `Parte ${idx + 1}: $ ${formatMoneyAR(t)}\n`;
+        });
         notaFactura = notaFactura.trim();
       }
 
-      let impTotal = 0, impNeto = 0, impIVA = 0;
+      let impTotal = 0;
+      let impNeto = 0;
+      let impIVA = 0;
+
       const itemsCalc = chunkItems.map((it) => {
         const subConIva = Number(it.subtotalConIva || 0);
-        const subNeto = round2(subConIva / 1.21), subIva = round2(subConIva - subNeto);
-        impTotal += subConIva; impNeto += subNeto; impIVA += subIva;
-        return { ...it, subtotalNeto: subNeto, precioNeto: it.cantidad > 0 ? round2(subNeto / it.cantidad) : 0 };
-      });
-      impTotal = round2(impTotal); impNeto = round2(impNeto); impIVA = round2(impIVA);
+        const subNeto = round2(subConIva / 1.21);
+        const subIva = round2(subConIva - subNeto);
+        impTotal += subConIva;
+        impNeto += subNeto;
+        impIVA += subIva;
 
-      let subBrutoParte = 0, descParte = 0, pctParte = 0;
+        return {
+          ...it,
+          subtotalNeto: subNeto,
+          precioNeto: it.cantidad > 0 ? round2(subNeto / it.cantidad) : 0
+        };
+      });
+
+      impTotal = round2(impTotal);
+      impNeto = round2(impNeto);
+      impIVA = round2(impIVA);
+
+      let subBrutoParte = 0;
+      let descParte = 0;
+      let pctParte = 0;
+
       if (factorUsado < 1 && impTotal > 0) {
         pctParte = descuentoPctIn > 0 ? round2(descuentoPctIn) : 0;
-        if (i < chunks.length - 1) subBrutoParte = round2(impTotal / factorUsado);
-        else if (subtotalBrutoIn > 0) { subBrutoParte = round2(subtotalBrutoIn - acumuladoSubBruto); if (subBrutoParte < 0) subBrutoParte = round2(impTotal / factorUsado); }
-        else subBrutoParte = round2(impTotal / factorUsado);
+
+        if (i < chunks.length - 1) {
+          subBrutoParte = round2(impTotal / factorUsado);
+        } else if (subtotalBrutoIn > 0) {
+          subBrutoParte = round2(subtotalBrutoIn - acumuladoSubBruto);
+          if (subBrutoParte < 0) subBrutoParte = round2(impTotal / factorUsado);
+        } else {
+          subBrutoParte = round2(impTotal / factorUsado);
+        }
+
         descParte = round2(subBrutoParte - impTotal);
         acumuladoSubBruto = round2(acumuladoSubBruto + subBrutoParte);
       }
 
       const nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+
       const voucherData = {
-        CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1, DocTipo: 80,
-        DocNro: Number(cuitCliente), CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
-        ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto, ImpOpEx: 0, ImpIVA: impIVA,
-        ImpTrib: 0, MonId: "PES", MonCotiz: 1, Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+        CantReg: 1,
+        PtoVta: pv,
+        CbteTipo: CBTE_TIPO_REAL,
+        Concepto: 1,
+        DocTipo: 80,
+        DocNro: Number(cuitCliente),
+        CbteDesde: nro,
+        CbteHasta: nro,
+        CbteFch: cbteFch,
+        ImpTotal: impTotal,
+        ImpTotConc: 0,
+        ImpNeto: impNeto,
+        ImpOpEx: 0,
+        ImpIVA: impIVA,
+        ImpTrib: 0,
+        MonId: "PES",
+        MonCotiz: 1,
+        Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
       };
+
       const result = await afip.ElectronicBilling.createVoucher(voucherData);
 
-      const qrPayload = { ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv, tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal, moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente), tipoCodAut: "E", codAut: Number(result.CAE) };
-      const qrDataUrl = await QRCode.toDataURL(`https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`, { margin: 0, width: 170 });
+      const qrPayload = {
+        ver: 1,
+        fecha,
+        cuit: CUIT_DISTRIBUIDORA,
+        ptoVta: pv,
+        tipoCmp: CBTE_TIPO_REAL,
+        nroCmp: nro,
+        importe: impTotal,
+        moneda: "PES",
+        ctz: 1,
+        tipoDocRec: 80,
+        nroDocRec: Number(cuitCliente),
+        tipoCodAut: "E",
+        codAut: Number(result.CAE)
+      };
+
+      const qrDataUrl = await QRCode.toDataURL(
+        `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+        { margin: 0, width: 170 }
+      );
 
       const htmlPDF = buildFacturaHtml({
-        receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: domicilioRemitoIn },
-        fechaISO: fecha, pv, nro, items: itemsCalc, neto: impNeto, iva: impIVA, total: impTotal,
-        cae: result.CAE, caeVtoISO: result.CAEFchVto, condicionVenta, qrDataUrl, isPreview: false, notaFactura,
-        subtotalBruto: subBrutoParte, descuentoPct: pctParte, descuentoImporte: descParte, totalFinal: impTotal
+        receptor: {
+          cuit: cuitCliente,
+          nombre: rec.nombre,
+          condicionIVA: rec.condicionIVA,
+          domicilioAfip: rec.domicilioAfip,
+          domicilioRemito: domicilioRemitoIn
+        },
+        fechaISO: fecha,
+        pv,
+        nro,
+        items: itemsCalc,
+        neto: impNeto,
+        iva: impIVA,
+        total: impTotal,
+        cae: result.CAE,
+        caeVtoISO: result.CAEFchVto,
+        condicionVenta,
+        qrDataUrl,
+        isPreview: false,
+        notaFactura,
+        subtotalBruto: subBrutoParte,
+        descuentoPct: pctParte,
+        descuentoImporte: descParte,
+        totalFinal: impTotal
       });
 
-      const pdfRes = await afip.ElectronicBilling.createPDF({ html: htmlPDF, file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`, options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 } });
+      const pdfRes = await afip.ElectronicBilling.createPDF({
+        html: htmlPDF,
+        file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+        options: {
+          width: 8.27,
+          marginTop: 0.35,
+          marginBottom: 0.35,
+          marginLeft: 0.35,
+          marginRight: 0.35
+        }
+      });
 
       let pdfBuffer = null;
-      try { pdfBuffer = await downloadToBuffer(pdfRes.file); } catch (e) { errlog("⚠️ No pude bajar PDF:", e?.message); }
+      try {
+        pdfBuffer = await downloadToBuffer(pdfRes.file);
+      } catch (e) {
+        errlog("⚠️ No pude bajar PDF:", e?.message);
+      }
 
       let pdfPublicUrl = "";
       try {
-        if (pdfBuffer?.length) pdfPublicUrl = savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-        else pdfPublicUrl = String(pdfRes.file || "");
-      } catch { pdfPublicUrl = String(pdfRes.file || ""); }
+        if (pdfBuffer?.length) {
+          pdfPublicUrl = savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        } else {
+          pdfPublicUrl = String(pdfRes.file || "");
+        }
+      } catch {
+        pdfPublicUrl = String(pdfRes.file || "");
+      }
 
-      mailParts.push({ parte: i + 1, totalPartes: chunks.length, pv, nro, cae: result.CAE, total: impTotal, pdfUrl: pdfPublicUrl });
-      if (pdfBuffer?.length) mailAttachments.push({ filename: `FA_${pad(pv, 5)}-${pad(nro, 8)}.pdf`, content: pdfBuffer, contentType: "application/pdf" });
+      const comprobante = await guardarFacturaEnDB({
+        cuitCliente,
+        rec,
+        nro,
+        pv,
+        cae: result.CAE,
+        impTotal,
+        pdfPublicUrl,
+        condicionVenta,
+        fecha,
+        chunkItems,
+        emailAEnviar
+      });
 
-      resultados.push({ nroFactura: nro, cae: result.CAE, total: impTotal, pdfUrl: pdfPublicUrl });
-      guardarFacturaEnDB({ cuitCliente, rec, nro, pv, cae: result.CAE, impTotal, pdfPublicUrl, condicionVenta, fecha, chunkItems });
+      mailParts.push({
+        parte: i + 1,
+        totalPartes: chunks.length,
+        pv,
+        nro,
+        cae: result.CAE,
+        total: impTotal,
+        pdfUrl: pdfPublicUrl,
+        comprobante
+      });
+
+      if (pdfBuffer?.length) {
+        mailAttachments.push({
+          filename: `FA_${pad(pv, 5)}-${pad(nro, 8)}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf"
+        });
+      }
+
+      resultados.push({
+        nroFactura: nro,
+        cae: result.CAE,
+        total: impTotal,
+        pdfUrl: pdfPublicUrl,
+        comprobante
+      });
     }
 
-       // ── Responder al frontend AHORA — factura autorizada ──
+    // ── Responder al frontend AHORA — factura autorizada ──
     let finalMsg = resultados.length > 1
       ? `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`
       : `Factura autorizada con éxito.`;
@@ -1017,46 +1176,74 @@ Total remito: $ ${formatMoneyAR(totalRemitoGlobal)}
     });
 
     res.json({
-      ok: true, version: APP_VERSION, puntoDeVenta: pv, mensaje: finalMsg,
+      ok: true,
+      version: APP_VERSION,
+      puntoDeVenta: pv,
+      mensaje: finalMsg,
       facturas: resultados,
-      receptor: { cuit: cuitCliente, nombre: rec.nombre, domicilio: domicilioRemitoIn || rec.domicilioAfip },
+      receptor: {
+        cuit: cuitCliente,
+        nombre: rec.nombre,
+        domicilio: domicilioRemitoIn || rec.domicilioAfip
+      },
       waLink: `https://wa.me/?text=${encodeURIComponent(waText)}`
     });
 
     // ── Email en background DESPUÉS de responder al frontend ──
-    // Si falla, la factura ya está autorizada y el usuario ya lo sabe.
     if (mailAttachments.length) {
       setImmediate(async () => {
         try {
-          const domRemitoMail  = String(domicilioRemitoIn || "").trim();
-          const domAfipMail    = String(rec.domicilioAfip || "").trim();
+          const domRemitoMail = String(domicilioRemitoIn || "").trim();
+          const domAfipMail = String(rec.domicilioAfip || "").trim();
           const normAddr = s => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.,;]+/g, "").trim();
+
           const showBothDom = domRemitoMail && domAfipMail && normAddr(domRemitoMail) !== normAddr(domAfipMail);
           const domicilioMailHtml = showBothDom
             ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (AFIP):</strong> ${safeText(domAfipMail)}</div></div>`
             : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
+
           const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
+
           const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">A-${pad(p.pv,5)}-${pad(p.nro,8)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
           const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
+
           const subject = mailParts.length > 1
             ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible} - ${safeText(rec.nombre)}`
             : `Factura A ${pad(mailParts[0].pv,5)}-${pad(mailParts[0].nro,8)} - ${EMISOR.nombreVisible}`;
-          const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) correspondiente(s) a su compra.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal?`<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>`:""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div><div style="margin-top:18px;text-align:center;color:#64748b;font-size:12px;">Comprobantes autorizados por ARCA.</div></div></div></div>`;
+
+          const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) correspondiente(s) a su compra.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div><div style="margin-top:18px;text-align:center;color:#64748b;font-size:12px;">Comprobantes autorizados por ARCA.</div></div></div></div>`;
 
           await transporter.sendMail({
             from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-            to: emailAEnviar, subject, html: mailHtml, attachments: mailAttachments
+            to: emailAEnviar,
+            subject,
+            html: mailHtml,
+            attachments: mailAttachments
           });
+
+          for (const p of mailParts) {
+            await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
+          }
+
           console.log(`✅ [Email] Enviado a ${emailAEnviar} — ${mailParts.length} factura(s)`);
         } catch (mailErr) {
+          for (const p of mailParts) {
+            await actualizarEstadoEmail(
+              p.comprobante,
+              "failed",
+              mailErr?.message || "Error desconocido",
+              emailAEnviar
+            );
+          }
           console.error("⚠️ [Email] Falló (factura ya autorizada):", mailErr?.message || mailErr);
         }
       });
     }
 
   } catch (err) {
-    // Solo llegamos acá si AFIP falló — antes de responder
-    if (!res.headersSent) res.status(500).json({ message: err.message, detail: err?.data || null });
+    if (!res.headersSent) {
+      res.status(500).json({ message: err.message, detail: err?.data || null });
+    }
     console.error("❌ [/facturar]", err?.message || err);
   }
 });
