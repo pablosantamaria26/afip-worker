@@ -1566,3 +1566,557 @@ app.get("/admin/test-resumen", async (req, res) => {
     res.send("✅ Resumen enviado");
   } catch (e) { res.status(500).send("❌ Error: " + (e?.message || e)); }
 });
+
+// ================================================================
+// ✅ ANULACIÓN CON NOTA DE CRÉDITO ASOCIADA
+// Pegar al final de index.js, después de /admin/test-resumen
+// ================================================================
+
+const NC_TIPO_MAP = {
+  1: 3,    // Factura A  -> Nota de Crédito A
+  6: 8,    // Factura B  -> Nota de Crédito B
+  11: 13,  // Factura C  -> Nota de Crédito C
+  51: 53   // Factura M  -> Nota de Crédito M
+};
+
+function inferCbteTipoFromComprobante(comp = "") {
+  const s = String(comp || "").toUpperCase();
+  if (s.startsWith("NC-")) return CBTE_TIPO_REAL === 51 ? 53 : 3;
+  if (s.startsWith("A-")) return 1;
+  if (s.startsWith("B-")) return 6;
+  if (s.startsWith("C-")) return 11;
+  if (s.startsWith("M-")) return 51;
+  return CBTE_TIPO_REAL;
+}
+
+function inferNcTipoFromOriginal(originalCbteTipo) {
+  return NC_TIPO_MAP[Number(originalCbteTipo)] || 53;
+}
+
+function buildComprobanteLabelByTipo(cbteTipo, pv, nro) {
+  const map = {
+    1: "FA-A",
+    3: "NC-A",
+    6: "FA-B",
+    8: "NC-B",
+    11: "FA-C",
+    13: "NC-C",
+    51: "FA-M",
+    53: "NC-M"
+  };
+  const pref = map[Number(cbteTipo)] || "CBTE";
+  return `${pref}-${pad(pv, 5)}-${pad(nro, 8)}`;
+}
+
+async function buscarComprobanteGuardado({ comprobante, pv, nro }) {
+  const compNorm = String(comprobante || "").trim();
+
+  if (supabase) {
+    try {
+      let data = null;
+      let error = null;
+
+      if (compNorm) {
+        const q = await supabase
+          .from("facturas")
+          .select("*")
+          .eq("comprobante", compNorm)
+          .limit(1)
+          .maybeSingle();
+        data = q.data;
+        error = q.error;
+      } else if (pv && nro) {
+        const q = await supabase
+          .from("facturas")
+          .select("*")
+          .eq("punto_venta", Number(pv))
+          .eq("nro_factura", Number(nro))
+          .limit(1)
+          .maybeSingle();
+        data = q.data;
+        error = q.error;
+      }
+
+      if (error) throw error;
+      if (data) {
+        return {
+          ...data,
+          nroFactura: data.nro_factura,
+          puntoVenta: data.punto_venta,
+          cuitCliente: data.cuit_cliente,
+          nombreCliente: data.nombre_cliente,
+          condicionVenta: data.condicion_venta,
+          pdfUrl: data.pdf_url,
+          cbteTipo: Number(data.cbte_tipo || inferCbteTipoFromComprobante(data.comprobante))
+        };
+      }
+    } catch (e) {
+      console.error("❌ [NC] Error buscando comprobante en Supabase:", e?.message || e);
+    }
+  }
+
+  if (!fs.existsSync(DB_FACTURAS)) return null;
+
+  const rows = fs.readFileSync(DB_FACTURAS, "utf-8")
+    .split("\n")
+    .filter(Boolean)
+    .map(l => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+
+  let found = null;
+
+  if (compNorm) {
+    found = rows.find(r => String(r.comprobante || "").trim() === compNorm) || null;
+  } else if (pv && nro) {
+    found = rows.find(r =>
+      Number(r.puntoVenta || r.punto_venta) === Number(pv) &&
+      Number(r.nroFactura || r.nro_factura) === Number(nro)
+    ) || null;
+  }
+
+  if (!found) return null;
+
+  return {
+    ...found,
+    nroFactura: found.nroFactura || found.nro_factura,
+    puntoVenta: found.puntoVenta || found.punto_venta,
+    cuitCliente: found.cuitCliente || found.cuit_cliente,
+    nombreCliente: found.nombreCliente || found.nombre_cliente,
+    condicionVenta: found.condicionVenta || found.condicion_venta,
+    pdfUrl: found.pdfUrl || found.pdf_url,
+    cbteTipo: Number(found.cbteTipo || found.cbte_tipo || inferCbteTipoFromComprobante(found.comprobante))
+  };
+}
+
+async function guardarComprobanteGeneralEnDB({
+  comprobante,
+  cbteTipo,
+  cuitCliente,
+  nombreCliente,
+  domicilio,
+  nro,
+  pv,
+  cae,
+  impTotal,
+  pdfPublicUrl,
+  condicionVenta,
+  fecha,
+  items,
+  emailAEnviar = "",
+  emailStatus = "pending",
+  emailError = ""
+}) {
+  const registro = {
+    timestamp: new Date().toISOString(),
+    fecha,
+    anio: Number(String(fecha).split("-")[0]),
+    mes: Number(String(fecha).split("-")[1]),
+    comprobante: String(comprobante || ""),
+    cbte_tipo: Number(cbteTipo || 0),
+    nro_factura: Number(nro || 0),
+    punto_venta: Number(pv || 0),
+    cae: String(cae || ""),
+    cuit_cliente: String(cuitCliente || ""),
+    nombre_cliente: String(nombreCliente || ""),
+    domicilio: String(domicilio || ""),
+    condicion_venta: String(condicionVenta || ""),
+    total: Number(impTotal || 0),
+    pdf_url: String(pdfPublicUrl || ""),
+    email_to: String(emailAEnviar || ""),
+    email_status: String(emailStatus || "pending"),
+    email_error: String(emailError || ""),
+    items: JSON.stringify(Array.isArray(items) ? items : [])
+  };
+
+  if (supabase) {
+    try {
+      const { error } = await supabase
+        .from("facturas")
+        .upsert([registro], { onConflict: "comprobante" });
+
+      if (error) throw error;
+      if (DEBUG) log("✅ [Supabase] Comprobante guardado:", registro.comprobante);
+    } catch (e) {
+      console.error("❌ [Supabase] Error guardando comprobante general:", e?.message || e);
+      _guardarEnArchivoLocal(registro);
+    }
+  } else {
+    _guardarEnArchivoLocal(registro);
+  }
+
+  return registro.comprobante;
+}
+
+async function marcarComprobanteComoAnulado(comprobanteOriginal, ncComprobante, ncCae) {
+  if (!supabase) return;
+
+  try {
+    const payload = {
+      email_error: `ANULADA POR ${ncComprobante} | CAE ${ncCae}`
+    };
+
+    const { error } = await supabase
+      .from("facturas")
+      .update(payload)
+      .eq("comprobante", comprobanteOriginal);
+
+    if (error) throw error;
+  } catch (e) {
+    console.error("❌ [Supabase] Error marcando anulación:", e?.message || e);
+  }
+}
+
+function buildNotaCreditoHtml({
+  emisor,
+  receptor,
+  fechaISO,
+  pv,
+  nro,
+  cae,
+  caeVtoISO,
+  qrDataUrl,
+  total,
+  originalComprobante,
+  originalCae,
+  motivo
+}) {
+  const pvStr = pad(pv, 5);
+  const nroStr = pad(nro, 8);
+  const fechaAR = String(fechaISO || "").split("-").reverse().join("/");
+  const caeVtoAR = String(caeVtoISO || "").split("-").reverse().join("/");
+  const domMain = String(receptor?.domicilioAfip || receptor?.domicilioRemito || "Domicilio no informado");
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Nota de Crédito ${pvStr}-${nroStr}</title>
+  <style>
+    * { box-sizing:border-box; font-family: Arial, Helvetica, sans-serif; }
+    body { margin:0; color:#0f172a; background:#fff; }
+    .page { width:820px; margin:0 auto; padding:30px; }
+    .box { border:2px solid #1e293b; border-radius:8px; overflow:hidden; margin-bottom:18px; }
+    .head { display:flex; }
+    .col { flex:1; padding:18px 20px; }
+    .col + .col { border-left:1px solid #e2e8f0; text-align:right; }
+    .title { font-size:26px; font-weight:900; color:#1e293b; margin-bottom:6px; }
+    .muted { font-size:11px; color:#475569; margin:3px 0; }
+    .strong { color:#0f172a; font-weight:800; }
+    .card { border:1px solid #cbd5e1; border-radius:8px; padding:14px; background:#f8fafc; margin-bottom:16px; }
+    .card-title { font-size:12px; font-weight:900; text-transform:uppercase; color:#1e293b; margin-bottom:8px; }
+    .motivo { background:#fef3c7; border:1px solid #f59e0b; color:#92400e; border-radius:8px; padding:12px; font-size:13px; font-weight:700; margin-top:10px; }
+    .totals { display:flex; gap:18px; margin-top:18px; }
+    .tot-box { flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:15px; }
+    .row { display:flex; justify-content:space-between; margin:8px 0; font-size:13px; }
+    .row.final { border-top:2px solid #e2e8f0; padding-top:10px; margin-top:12px; font-size:18px; font-weight:900; }
+    .arca { flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:15px; background:#f8fafc; display:flex; align-items:center; justify-content:space-between; }
+    .qr { width:110px; height:110px; }
+    .footer { text-align:center; font-size:10px; font-weight:700; color:#64748b; margin-top:18px; border-top:1px dashed #cbd5e1; padding-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="box">
+      <div class="head">
+        <div class="col">
+          <div class="title">NOTA DE CRÉDITO</div>
+          <div class="muted">Razón Social: <span class="strong">${safeText(emisor.nombreVisible)}</span></div>
+          <div class="muted">Domicilio Comercial: <span class="strong">${safeText(emisor.domicilio)}</span></div>
+          <div class="muted">Condición frente al IVA: <span class="strong">${safeText(emisor.condicionIVA)}</span></div>
+        </div>
+        <div class="col">
+          <div class="title">M</div>
+          <div class="muted">Punto de Venta: <span class="strong">${pvStr}</span> &nbsp;&nbsp; Comp. Nro: <span class="strong">${nroStr}</span></div>
+          <div class="muted">Fecha de Emisión: <span class="strong">${safeText(fechaAR)}</span></div>
+          <div class="muted">CUIT Emisor: <span class="strong">${safeText(CUIT_DISTRIBUIDORA)}</span></div>
+          <div class="muted">CAE: <span class="strong">${safeText(cae)}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cliente</div>
+      <div class="muted">CUIT: <span class="strong">${safeText(receptor.cuit)}</span></div>
+      <div class="muted">Razón Social: <span class="strong">${safeText(receptor.nombre)}</span></div>
+      <div class="muted">Domicilio: <span class="strong">${safeText(domMain)}</span></div>
+      <div class="muted">Condición frente al IVA: <span class="strong">${safeText(receptor.condicionIVA || "IVA Responsable Inscripto")}</span></div>
+
+      <div class="motivo">
+        Anulación mediante Nota de Crédito asociada.<br/>
+        Comprobante original: <strong>${safeText(originalComprobante)}</strong><br/>
+        CAE original: <strong>${safeText(originalCae || "-")}</strong><br/>
+        Motivo: <strong>${safeText(motivo || "Anulación por error / duplicación")}</strong>
+      </div>
+    </div>
+
+    <div class="totals">
+      <div class="arca">
+        ${qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="QR ARCA" />` : `<div class="qr"></div>`}
+        <div style="text-align:right; font-size:11px; color:#334155; line-height:1.6;">
+          Comprobante Autorizado por ARCA<br><br>
+          <strong>CAE Nro:</strong> ${safeText(cae)}<br>
+          <strong>Fecha Vto. CAE:</strong> ${safeText(caeVtoAR)}
+        </div>
+      </div>
+      <div class="tot-box">
+        <div class="row"><span>Importe Neto Gravado:</span><strong>$ ${formatMoneyAR(round2(Number(total || 0) / 1.21))}</strong></div>
+        <div class="row"><span>IVA 21%:</span><strong>$ ${formatMoneyAR(round2(Number(total || 0) - round2(Number(total || 0) / 1.21)))}</strong></div>
+        <div class="row final"><span>TOTAL NOTA DE CRÉDITO:</span><span>$ ${formatMoneyAR(total)}</span></div>
+      </div>
+    </div>
+
+    <div class="footer">${safeText(emisor.leyenda)}</div>
+  </div>
+</body>
+</html>`;
+}
+
+app.post("/anular-comprobante", async (req, res) => {
+  try {
+    const comprobanteOriginal = String(req.body.comprobante || "").trim();
+    const pvOriginal = Number(req.body.puntoVenta || 0);
+    const nroOriginal = Number(req.body.nroFactura || 0);
+    const motivo = String(req.body.motivo || "Anulación por error / comprobante duplicado").trim();
+
+    if (!comprobanteOriginal && (!pvOriginal || !nroOriginal)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Debés informar comprobante o puntoVenta + nroFactura"
+      });
+    }
+
+    const original = await buscarComprobanteGuardado({
+      comprobante: comprobanteOriginal,
+      pv: pvOriginal,
+      nro: nroOriginal
+    });
+
+    if (!original) {
+      return res.status(404).json({
+        ok: false,
+        message: "No encontré el comprobante original en la base"
+      });
+    }
+
+    const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
+    const cbteTipoNC = inferNcTipoFromOriginal(cbteTipoOriginal);
+    const pvNc = await getPtoVentaSeguro();
+    const fecha = todayISO();
+    const cbteFch = yyyymmdd(fecha);
+
+    const totalOriginal = Math.abs(Number(original.total || 0));
+    if (!(totalOriginal > 0)) {
+      return res.status(400).json({
+        ok: false,
+        message: "El comprobante original no tiene un total válido para anular"
+      });
+    }
+
+    const impNeto = round2(totalOriginal / 1.21);
+    const impIVA = round2(totalOriginal - impNeto);
+    const nroNC = (await afip.ElectronicBilling.getLastVoucher(pvNc, cbteTipoNC)) + 1;
+
+    const voucherData = {
+      CantReg: 1,
+      PtoVta: pvNc,
+      CbteTipo: cbteTipoNC,
+      Concepto: 1,
+      DocTipo: 80,
+      DocNro: Number(original.cuitCliente),
+      CbteDesde: nroNC,
+      CbteHasta: nroNC,
+      CbteFch: cbteFch,
+      ImpTotal: totalOriginal,
+      ImpTotConc: 0,
+      ImpNeto: impNeto,
+      ImpOpEx: 0,
+      ImpIVA: impIVA,
+      ImpTrib: 0,
+      MonId: "PES",
+      MonCotiz: 1,
+      Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
+      CbtesAsoc: [{
+        Tipo: cbteTipoOriginal,
+        PtoVta: Number(original.puntoVenta),
+        Nro: Number(original.nroFactura)
+      }]
+    };
+
+    const result = await afip.ElectronicBilling.createVoucher(voucherData);
+
+    const qrPayload = {
+      ver: 1,
+      fecha,
+      cuit: CUIT_DISTRIBUIDORA,
+      ptoVta: pvNc,
+      tipoCmp: cbteTipoNC,
+      nroCmp: nroNC,
+      importe: totalOriginal,
+      moneda: "PES",
+      ctz: 1,
+      tipoDocRec: 80,
+      nroDocRec: Number(original.cuitCliente),
+      tipoCodAut: "E",
+      codAut: Number(result.CAE)
+    };
+
+    const qrDataUrl = await QRCode.toDataURL(
+      `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+      { margin: 0, width: 170 }
+    );
+
+    const htmlNC = buildNotaCreditoHtml({
+      emisor: EMISOR,
+      receptor: {
+        cuit: original.cuitCliente,
+        nombre: original.nombreCliente,
+        domicilioAfip: original.domicilio || "",
+        condicionIVA: "IVA Responsable Inscripto"
+      },
+      fechaISO: fecha,
+      pv: pvNc,
+      nro: nroNC,
+      cae: result.CAE,
+      caeVtoISO: result.CAEFchVto,
+      qrDataUrl,
+      total: totalOriginal,
+      originalComprobante: original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura),
+      originalCae: original.cae || "",
+      motivo
+    });
+
+    const pdfRes = await afip.ElectronicBilling.createPDF({
+      html: htmlNC,
+      file_name: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`,
+      options: {
+        width: 8.27,
+        marginTop: 0.35,
+        marginBottom: 0.35,
+        marginLeft: 0.35,
+        marginRight: 0.35
+      }
+    });
+
+    let pdfBuffer = null;
+    try {
+      pdfBuffer = await downloadToBuffer(pdfRes.file);
+    } catch (e) {
+      console.error("⚠️ [NC] No pude descargar PDF NC:", e?.message || e);
+    }
+
+    let pdfPublicUrl = "";
+    try {
+      if (pdfBuffer?.length) {
+        pdfPublicUrl = savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
+      } else {
+        pdfPublicUrl = String(pdfRes.file || "");
+      }
+    } catch (e) {
+      pdfPublicUrl = String(pdfRes.file || "");
+      console.error("⚠️ [NC] Error guardando PDF público:", e?.message || e);
+    }
+
+    const ncComprobante = buildComprobanteLabelByTipo(cbteTipoNC, pvNc, nroNC);
+
+    await guardarComprobanteGeneralEnDB({
+      comprobante: ncComprobante,
+      cbteTipo: cbteTipoNC,
+      cuitCliente: original.cuitCliente,
+      nombreCliente: original.nombreCliente,
+      domicilio: original.domicilio || "",
+      nro: nroNC,
+      pv: pvNc,
+      cae: result.CAE,
+      impTotal: -totalOriginal, // negativo para que el resumen reste
+      pdfPublicUrl,
+      condicionVenta: `ANULACIÓN / NC ASOCIADA A ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
+      fecha,
+      items: [{
+        descripcion: `Anulación de ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
+        cantidad: 1,
+        precio_con_iva: totalOriginal,
+        subtotal_con_iva: totalOriginal
+      }],
+      emailAEnviar: original.email_to || DEFAULT_EMAIL
+    });
+
+    await marcarComprobanteComoAnulado(
+      original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura),
+      ncComprobante,
+      result.CAE
+    );
+
+    const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
+
+    if (GMAIL_USER && GMAIL_APP_PASS && emailDestino) {
+      setImmediate(async () => {
+        try {
+          await transporter.sendMail({
+            from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+            to: emailDestino,
+            subject: `Nota de Crédito ${pad(pvNc, 5)}-${pad(nroNC, 8)} - ${EMISOR.nombreVisible}`,
+            html: `
+              <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
+                <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
+                  <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
+                    <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
+                  </div>
+                  <div style="padding:24px;">
+                    <div style="font-size:14px;margin-bottom:10px;">
+                      Se emitió una <strong>Nota de Crédito</strong> asociada al comprobante original.
+                    </div>
+                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
+                      <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
+                      <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
+                      <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
+                      <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
+                      <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
+                      <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
+                      <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `,
+            attachments: pdfBuffer?.length ? [{
+              filename: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}.pdf`,
+              content: pdfBuffer,
+              contentType: "application/pdf"
+            }] : []
+          });
+
+          await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
+          console.log(`✅ [NC] Email enviado a ${emailDestino}`);
+        } catch (mailErr) {
+          await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message || "Error email NC", emailDestino);
+          console.error("⚠️ [NC] Falló email:", mailErr?.message || mailErr);
+        }
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Nota de Crédito emitida correctamente. El comprobante original quedó neutralizado.",
+      original: {
+        comprobante: original.comprobante,
+        cae: original.cae,
+        total: Number(original.total || 0)
+      },
+      notaCredito: {
+        comprobante: ncComprobante,
+        puntoVenta: pvNc,
+        nroFactura: nroNC,
+        cae: result.CAE,
+        total: totalOriginal,
+        pdfUrl: pdfPublicUrl
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ [/anular-comprobante]", err?.message || err);
+    return res.status(500).json({
+      ok: false,
+      message: err?.message || "Error al anular comprobante"
+    });
+  }
+});
