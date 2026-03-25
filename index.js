@@ -37,7 +37,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-03-SUPABASE-PERSIST.GEMINI-MOTOR-DOBLE-SMART";
+const APP_VERSION = "2026-03-SUPABASE-PERSIST.GEMINI-MOTOR-DOBLE-SMART.EMAIL-SYNC";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -134,6 +134,11 @@ if (!GMAIL_USER || !GMAIL_APP_PASS) {
 } else {
   console.log(`✅ [Email] Gmail configurado para: ${GMAIL_USER}`);
 }
+
+// ── Verificar Gmail al arrancar ────────────────────────────────
+transporter.verify()
+  .then(() => console.log("✅ [Email] Gmail verificado — SMTP listo"))
+  .catch(err => console.error("❌ [Email] Gmail NO pudo verificar SMTP:", err?.message || err));
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -938,9 +943,73 @@ app.post("/debug/preview", async (req, res) => {
 });
 
 // ================================================================
-// ✅ RUTA /facturar — sincrónica, email en background separado
-// El resultado llega al frontend cuando AFIP autoriza + PDF listo.
-// El email NO bloquea la respuesta — si falla, la factura ya está OK.
+// ✅ HELPER — enviar email de factura (sincrónico, con timeout)
+// ================================================================
+async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente, domicilioRemitoIn, condicionVenta, subtotalBrutoIn, descuentoPctIn, descuentoImporteIn, totalFinalIn, emailAEnviar }) {
+  console.log("📨 [Email] Inicio envío sincrónico...");
+  console.log("📨 [Email] Destino:", emailAEnviar);
+  console.log("📨 [Email] Adjuntos:", mailAttachments.length);
+  console.log("📨 [Email] Gmail user:", GMAIL_USER || "(vacío)");
+
+  if (!GMAIL_USER || !GMAIL_APP_PASS) {
+    const errMsg = "Credenciales Gmail no configuradas";
+    console.error("❌ [Email]", errMsg);
+    for (const p of mailParts) {
+      await actualizarEstadoEmail(p.comprobante, "failed", errMsg, emailAEnviar);
+    }
+    return { sent: false, error: errMsg };
+  }
+
+  try {
+    const domRemitoMail = String(domicilioRemitoIn || "").trim();
+    const domAfipMail = String(rec.domicilioAfip || "").trim();
+    const normAddr = s => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.,;]+/g, "").trim();
+
+    const showBothDom = domRemitoMail && domAfipMail && normAddr(domRemitoMail) !== normAddr(domAfipMail);
+    const domicilioMailHtml = showBothDom
+      ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (AFIP):</strong> ${safeText(domAfipMail)}</div></div>`
+      : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
+
+    const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
+
+    const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">A-${pad(p.pv,5)}-${pad(p.nro,8)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
+    const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
+
+    const subject = mailParts.length > 1
+      ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible} - ${safeText(rec.nombre)}`
+      : `Factura A ${pad(mailParts[0].pv,5)}-${pad(mailParts[0].nro,8)} - ${EMISOR.nombreVisible}`;
+
+    const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) correspondiente(s) a su compra.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div><div style="margin-top:18px;text-align:center;color:#64748b;font-size:12px;">Comprobantes autorizados por ARCA.</div></div></div></div>`;
+
+    await transporter.sendMail({
+      from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+      to: emailAEnviar,
+      subject,
+      html: mailHtml,
+      attachments: mailAttachments
+    });
+
+    for (const p of mailParts) {
+      await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
+    }
+
+    console.log(`✅ [Email] Enviado a ${emailAEnviar} — ${mailParts.length} factura(s)`);
+    return { sent: true, error: "" };
+
+  } catch (mailErr) {
+    const errMsg = mailErr?.message || "Error desconocido";
+    for (const p of mailParts) {
+      await actualizarEstadoEmail(p.comprobante, "failed", errMsg, emailAEnviar);
+    }
+    console.error("⚠️ [Email] Falló:", errMsg);
+    return { sent: false, error: errMsg };
+  }
+}
+
+// ================================================================
+// ✅ RUTA /facturar — EMAIL SINCRÓNICO antes de responder
+// La factura se autoriza en AFIP, se envía el email, y LUEGO
+// se responde al frontend. Esto evita que Render mate el proceso.
 // ================================================================
 app.post("/facturar", async (req, res) => {
   try {
@@ -1143,58 +1212,57 @@ app.post("/facturar", async (req, res) => {
         totalFinal: impTotal
       });
 
-     const pdfRes = await afip.ElectronicBilling.createPDF({
-  html: htmlPDF,
-  file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-  options: {
-    width: 8.27,
-    marginTop: 0.35,
-    marginBottom: 0.35,
-    marginLeft: 0.35,
-    marginRight: 0.35
-  }
-});
+      const pdfRes = await afip.ElectronicBilling.createPDF({
+        html: htmlPDF,
+        file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+        options: {
+          width: 8.27,
+          marginTop: 0.35,
+          marginBottom: 0.35,
+          marginLeft: 0.35,
+          marginRight: 0.35
+        }
+      });
 
-async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
-  let lastErr;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const buffer = await downloadToBuffer(url);
-      if (buffer && buffer.length > 0) return buffer;
-      throw new Error("PDF vacío");
-    } catch (e) {
-      lastErr = e;
-      if (attempt < maxRetries) {
-        await new Promise(res => setTimeout(res, delayMs));
+      async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
+        let lastErr;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const buffer = await downloadToBuffer(url);
+            if (buffer && buffer.length > 0) return buffer;
+            throw new Error("PDF vacío");
+          } catch (e) {
+            lastErr = e;
+            if (attempt < maxRetries) {
+              await new Promise(res => setTimeout(res, delayMs));
+            }
+          }
+        }
+        throw lastErr || new Error("No se pudo descargar el PDF");
       }
-    }
-  }
 
-  throw lastErr || new Error("No se pudo descargar el PDF");
-}
+      let pdfBuffer = null;
+      try {
+        pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
+        console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
+      } catch (e) {
+        console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
+      }
 
-let pdfBuffer = null;
-try {
-  pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
-  console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
-} catch (e) {
-  console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
-}
+      let pdfPublicUrl = "";
+      try {
+        if (pdfBuffer?.length) {
+          pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+          console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
+        } else {
+          pdfPublicUrl = String(pdfRes.file || "");
+          console.warn(`⚠️ [PDF] Uso URL original de AFIPSDK: ${pdfPublicUrl}`);
+        }
+      } catch (e) {
+        pdfPublicUrl = String(pdfRes.file || "");
+        console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
+      }
 
-let pdfPublicUrl = "";
-try {
-  if (pdfBuffer?.length) {
-  pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-  console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
-} else {
-    pdfPublicUrl = String(pdfRes.file || "");
-    console.warn(`⚠️ [PDF] Uso URL original de AFIPSDK: ${pdfPublicUrl}`);
-  }
-} catch (e) {
-  pdfPublicUrl = String(pdfRes.file || "");
-  console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
-}
       const comprobante = await guardarFacturaEnDB({
         cuitCliente,
         rec,
@@ -1237,10 +1305,37 @@ try {
       });
     }
 
-    // ── Responder al frontend AHORA — factura autorizada ──
+    // ── EMAIL SINCRÓNICO — se envía ANTES de responder al frontend ──
+    let emailResult = { sent: false, error: "no intentado" };
+    try {
+      emailResult = await enviarEmailFactura({
+        mailParts,
+        mailAttachments,
+        rec,
+        cuitCliente,
+        domicilioRemitoIn,
+        condicionVenta,
+        subtotalBrutoIn,
+        descuentoPctIn,
+        descuentoImporteIn,
+        totalFinalIn,
+        emailAEnviar
+      });
+    } catch (emailErr) {
+      emailResult = { sent: false, error: emailErr?.message || "Error inesperado" };
+      console.error("⚠️ [Email] Error no capturado:", emailErr?.message || emailErr);
+    }
+
+    // ── Ahora sí responder al frontend ──
     let finalMsg = resultados.length > 1
       ? `¡Factura dividida! Se emitieron ${resultados.length} comprobantes con éxito.`
       : `Factura autorizada con éxito.`;
+
+    if (emailResult.sent) {
+      finalMsg += ` Email enviado a ${emailAEnviar}.`;
+    } else {
+      finalMsg += ` ⚠️ Email no pudo enviarse: ${emailResult.error}. Podés descargar el PDF manualmente.`;
+    }
 
     let waText = `Factura de Mercado Limpio\nCliente: ${rec.nombre}\nCUIT: ${cuitCliente}\n\n`;
     resultados.forEach((r, idx) => {
@@ -1254,6 +1349,8 @@ try {
       version: APP_VERSION,
       puntoDeVenta: pv,
       mensaje: finalMsg,
+      emailEnviado: emailResult.sent,
+      emailError: emailResult.error || "",
       facturas: resultados,
       receptor: {
         cuit: cuitCliente,
@@ -1262,61 +1359,6 @@ try {
       },
       waLink: `https://wa.me/?text=${encodeURIComponent(waText)}`
     });
-
-    // ── Email en background DESPUÉS de responder al frontend ──
-setImmediate(async () => {
-  console.log("📨 [Email] Inicio proceso de envío...");
-  console.log("📨 [Email] Destino:", emailAEnviar);
-  console.log("📨 [Email] Adjuntos:", mailAttachments.length);
-  console.log("📨 [Email] Partes:", mailParts.length);
-  console.log("📨 [Email] Enviando con Gmail user:", GMAIL_USER || "(vacío)");
-        try {
-          const domRemitoMail = String(domicilioRemitoIn || "").trim();
-          const domAfipMail = String(rec.domicilioAfip || "").trim();
-          const normAddr = s => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.,;]+/g, "").trim();
-
-          const showBothDom = domRemitoMail && domAfipMail && normAddr(domRemitoMail) !== normAddr(domAfipMail);
-          const domicilioMailHtml = showBothDom
-            ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (AFIP):</strong> ${safeText(domAfipMail)}</div></div>`
-            : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
-
-          const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
-
-          const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">A-${pad(p.pv,5)}-${pad(p.nro,8)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
-          const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
-
-          const subject = mailParts.length > 1
-            ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible} - ${safeText(rec.nombre)}`
-            : `Factura A ${pad(mailParts[0].pv,5)}-${pad(mailParts[0].nro,8)} - ${EMISOR.nombreVisible}`;
-
-          const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) correspondiente(s) a su compra.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div><div style="margin-top:18px;text-align:center;color:#64748b;font-size:12px;">Comprobantes autorizados por ARCA.</div></div></div></div>`;
-
-          await transporter.sendMail({
-            from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-            to: emailAEnviar,
-            subject,
-            html: mailHtml,
-            attachments: mailAttachments
-          });
-
-          for (const p of mailParts) {
-            await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
-          }
-
-          console.log(`✅ [Email] Enviado a ${emailAEnviar} — ${mailParts.length} factura(s)`);
-        } catch (mailErr) {
-          for (const p of mailParts) {
-            await actualizarEstadoEmail(
-              p.comprobante,
-              "failed",
-              mailErr?.message || "Error desconocido",
-              emailAEnviar
-            );
-          }
-          console.error("⚠️ [Email] Falló (factura ya autorizada):", mailErr?.message || mailErr);
-        }
-      });
-    
 
   } catch (err) {
     if (!res.headersSent) {
@@ -1686,7 +1728,6 @@ app.get("/admin/test-resumen", async (req, res) => {
 
 // ================================================================
 // ✅ ANULACIÓN CON NOTA DE CRÉDITO ASOCIADA
-// Pegar al final de index.js, después de /admin/test-resumen
 // ================================================================
 
 const NC_TIPO_MAP = {
@@ -2124,8 +2165,8 @@ app.post("/anular-comprobante", async (req, res) => {
     let pdfPublicUrl = "";
     try {
       if (pdfBuffer?.length) {
-  pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
-} else {
+        pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
+      } else {
         pdfPublicUrl = String(pdfRes.file || "");
       }
     } catch (e) {
@@ -2144,7 +2185,7 @@ app.post("/anular-comprobante", async (req, res) => {
       nro: nroNC,
       pv: pvNc,
       cae: result.CAE,
-      impTotal: -totalOriginal, // negativo para que el resumen reste
+      impTotal: -totalOriginal,
       pdfPublicUrl,
       condicionVenta: `ANULACIÓN / NC ASOCIADA A ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
       fecha,
@@ -2163,57 +2204,58 @@ app.post("/anular-comprobante", async (req, res) => {
       result.CAE
     );
 
+    // ── Email NC sincrónico ──
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
+    let ncEmailSent = false;
 
     if (GMAIL_USER && GMAIL_APP_PASS && emailDestino) {
-      setImmediate(async () => {
-        try {
-          await transporter.sendMail({
-            from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-            to: emailDestino,
-            subject: `Nota de Crédito ${pad(pvNc, 5)}-${pad(nroNC, 8)} - ${EMISOR.nombreVisible}`,
-            html: `
-              <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
-                <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
-                  <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
-                    <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
+      try {
+        await transporter.sendMail({
+          from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+          to: emailDestino,
+          subject: `Nota de Crédito ${pad(pvNc, 5)}-${pad(nroNC, 8)} - ${EMISOR.nombreVisible}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
+              <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
+                <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
+                  <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
+                </div>
+                <div style="padding:24px;">
+                  <div style="font-size:14px;margin-bottom:10px;">
+                    Se emitió una <strong>Nota de Crédito</strong> asociada al comprobante original.
                   </div>
-                  <div style="padding:24px;">
-                    <div style="font-size:14px;margin-bottom:10px;">
-                      Se emitió una <strong>Nota de Crédito</strong> asociada al comprobante original.
-                    </div>
-                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
-                      <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
-                      <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
-                      <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
-                      <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
-                      <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
-                      <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
-                      <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
-                    </div>
+                  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
+                    <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
+                    <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
+                    <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
+                    <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
+                    <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
+                    <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
+                    <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
                   </div>
                 </div>
               </div>
-            `,
-            attachments: pdfBuffer?.length ? [{
-              filename: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}.pdf`,
-              content: pdfBuffer,
-              contentType: "application/pdf"
-            }] : []
-          });
+            </div>
+          `,
+          attachments: pdfBuffer?.length ? [{
+            filename: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf"
+          }] : []
+        });
 
-          await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
-          console.log(`✅ [NC] Email enviado a ${emailDestino}`);
-        } catch (mailErr) {
-          await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message || "Error email NC", emailDestino);
-          console.error("⚠️ [NC] Falló email:", mailErr?.message || mailErr);
-        }
-      });
+        await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
+        console.log(`✅ [NC] Email enviado a ${emailDestino}`);
+        ncEmailSent = true;
+      } catch (mailErr) {
+        await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message || "Error email NC", emailDestino);
+        console.error("⚠️ [NC] Falló email:", mailErr?.message || mailErr);
+      }
     }
 
     return res.json({
       ok: true,
-      message: "Nota de Crédito emitida correctamente. El comprobante original quedó neutralizado.",
+      message: `Nota de Crédito emitida correctamente.${ncEmailSent ? ` Email enviado a ${emailDestino}.` : " ⚠️ Email no enviado."}`,
       original: {
         comprobante: original.comprobante,
         cae: original.cae,
