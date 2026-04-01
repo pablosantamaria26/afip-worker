@@ -955,19 +955,109 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
     const normAddr = s => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.,;]+/g, "").trim();
 
     const showBothDom = domRemitoMail && domAfipMail && normAddr(domRemitoMail) !== normAddr(domAfipMail);
-    const domicilioMailHtml = showBothDom
-      ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (ARCA):</strong> ${safeText(domAfipMail)}</div></div>`
-      : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
+    
+    // FORMATO DOMICILIO
+    let domicilioHtml = "";
+    if (showBothDom) {
+      domicilioHtml = `
+        <div style="margin-bottom: 5px;"><strong>Domicilio de Entrega/Remito:</strong> ${safeText(domRemitoMail)}</div>
+        <div><strong>Domicilio Fiscal (ARCA):</strong> ${safeText(domAfipMail)}</div>`;
+    } else {
+      domicilioHtml = `<div><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
+    }
 
     const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
-    const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">${p.comprobante}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
+    
+    // FILAS DE LA TABLA DE COMPROBANTES
+    const partsRows = mailParts.map(p => `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 12px; color: #475569;">Parte ${p.parte}/${p.totalPartes}</td>
+        <td style="padding: 12px; font-weight: bold; color: #0f172a;">${p.comprobante}</td>
+        <td style="padding: 12px; color: #475569;">${safeText(p.cae)}</td>
+        <td style="padding: 12px; text-align: right; font-weight: 900; color: #0f172a;">$ ${formatMoneyAR(p.total)}</td>
+      </tr>
+    `).join("");
+    
     const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
 
     const subject = mailParts.length > 1
-      ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible}`
-      : `Factura A ${mailParts[0].comprobante} - ${EMISOR.nombreVisible}`;
+      ? `Facturas emitidas (${mailParts.length} partes) - ${EMISOR.nombreVisible}`
+      : `Factura ${mailParts[0].comprobante} - ${EMISOR.nombreVisible}`;
 
-    const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) clase M.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div></div></div></div>`;
+    // NUEVO DISEÑO HTML PROFESIONAL Y LIMPIO (Igual a la NC)
+    const mailHtml = `
+      <div style="font-family: 'Segoe UI', Helvetica, Arial, sans-serif; color: #1a1a1a; max-width: 600px; margin: 20px auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+        
+        <div style="background-color: #0f172a; padding: 30px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px; font-weight: 900;">${safeText(EMISOR.nombreVisible)}</h1>
+          <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Comprobante Electrónico</p>
+        </div>
+        
+        <div style="padding: 30px;">
+          <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</p>
+          <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+            Adjuntamos a este correo el/los comprobante(s) oficial(es) correspondiente(s) a su última operación.
+          </p>
+          
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 25px 0; border-left: 4px solid #3b82f6;">
+            <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; text-transform: uppercase;">Datos de Facturación</h3>
+            <div style="font-size: 13px; color: #475569; line-height: 1.8;">
+              <div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>
+              ${domicilioHtml}
+              <div style="margin-top: 5px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>
+              
+              ${showDescGlobal ? `
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #cbd5e1;">
+                  <div><strong>Subtotal Bruto:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div>
+                  <div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div>
+                  <div style="font-size: 15px; color: #0f172a; font-weight: bold; margin-top: 5px;">
+                    <strong>Total a pagar:</strong> $ ${formatMoneyAR(totalFinalIn)}
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          </div>
+          
+          <div style="margin-top: 25px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+            <div style="background-color: #1e293b; color: #ffffff; padding: 12px 15px; font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+              Detalle de Comprobantes
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <thead>
+                <tr style="background-color: #f1f5f9; text-transform: uppercase; font-size: 11px; color: #64748b;">
+                  <th style="padding: 10px 12px; text-align: left;">Parte</th>
+                  <th style="padding: 10px 12px; text-align: left;">Comprobante</th>
+                  <th style="padding: 10px 12px; text-align: left;">CAE</th>
+                  <th style="padding: 10px 12px; text-align: right;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${partsRows}
+              </tbody>
+              <tfoot>
+                <tr style="background-color: #f8fafc;">
+                  <td colspan="3" style="padding: 15px 12px; text-align: right; font-weight: 900; color: #334155; text-transform: uppercase; font-size: 12px;">Total Facturado</td>
+                  <td style="padding: 15px 12px; text-align: right; font-weight: 900; color: #3b82f6; font-size: 16px;">$ ${formatMoneyAR(totalMail)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          
+          <p style="font-size: 14px; color: #64748b; line-height: 1.6; background: #f1f5f9; padding: 12px; border-radius: 6px; text-align: center; margin-top: 25px;">
+            📎 <strong>Importante:</strong> Adjunto a este correo encontrará el/los archivo(s) PDF oficial(es) autorizado(s) por ARCA/AFIP.
+          </p>
+          
+          <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 30px;">
+            Atentamente,<br>
+            <strong>Administración Mercado Limpio</strong>
+          </p>
+        </div>
+        
+        <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+          <p style="margin: 0;">Este es un envío automático desde el sistema de facturación.</p>
+          <p style="margin: 5px 0 0 0;">Buenos Aires, Argentina</p>
+        </div>
+      </div>`;
 
     // --- LÓGICA DE ENVÍO ---
     if (resendClient) {
