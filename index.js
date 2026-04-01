@@ -2144,7 +2144,7 @@ app.post("/anular-comprobante", async (req, res) => {
       nro: nroOriginal
     });
 
-   // Si no está en Supabase, creamos un objeto mínimo para que ARCA pueda procesar
+    // Si no está en Supabase, creamos un objeto mínimo y consultamos padrón ARCA
     if (!original) {
       console.log("⚠️ Comprobante no en base, procediendo con datos manuales e integrando Padrón ARCA...");
       
@@ -2174,18 +2174,12 @@ app.post("/anular-comprobante", async (req, res) => {
       }
     }
 
-      if (!original.nroFactura || !original.total) {
-        return res.status(400).json({
-          ok: false,
-          message: "Para facturas antiguas no registradas, debés indicar Nro y Monto Total en el modal."
-        });
-      }
-    }
-
     const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
     const cbteTipoNC = inferNcTipoFromOriginal(cbteTipoOriginal);
     const pvNc = await getPtoVentaSeguro();
-    const fecha = todayISO();
+    
+    // Acá tomamos la fecha que pongas en el modal, sino usa la de hoy
+    const fecha = req.body.fechaNC || todayISO(); 
     const cbteFch = yyyymmdd(fecha);
 
     const totalOriginal = Math.abs(Number(original.total || 0));
@@ -2330,8 +2324,7 @@ app.post("/anular-comprobante", async (req, res) => {
       result.CAE
     );
 
-
-// ── Email NC vía Resend / Gmail (Sincrónico) ──
+    // ── Email NC vía Resend / Gmail (Sincrónico) ──
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
     let ncEmailSent = false;
 
@@ -2418,7 +2411,7 @@ app.post("/anular-comprobante", async (req, res) => {
 
     return res.json({
       ok: true,
-      message: `Nota de Crédito emitida correctamente.${ncEmailSent ? ` Email enviado a ${emailDestino}.` : " ⚠️ Email no enviado."}`,
+      message: `Nota de Crédito emitida correctamente.${ncEmailSent ? \` Email enviado a \${emailDestino}.\` : " ⚠️ Email no enviado."}`,
       original: {
         comprobante: original.comprobante,
         cae: original.cae,
