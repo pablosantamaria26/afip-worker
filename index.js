@@ -1744,7 +1744,10 @@ const NC_TIPO_MAP = {
 function inferCbteTipoFromComprobante(comp = "") {
   const s = String(comp || "").toUpperCase();
   if (s.startsWith("NC-")) return CBTE_TIPO_REAL === 51 ? 53 : 3;
-  if (s.startsWith("A-")) return 1;
+  
+  // Si el texto dice "A-" pero tu motor está en modo 51 (Factura M), forzamos a que use el 51.
+  if (s.startsWith("A-")) return CBTE_TIPO_REAL === 51 ? 51 : 1;
+  
   if (s.startsWith("B-")) return 6;
   if (s.startsWith("C-")) return 11;
   if (s.startsWith("M-")) return 51;
