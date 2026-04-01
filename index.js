@@ -2385,7 +2385,7 @@ app.post("/anular-comprobante", async (req, res) => {
 
     return res.json({
       ok: true,
-      message: `Nota de Crédito emitida correctamente.${ncEmailSent ? \` Email enviado a \${emailDestino}.\` : " ⚠️ Email no enviado."}`,
+      message: `Nota de Crédito emitida correctamente.${ncEmailSent ? ` Email enviado a ${emailDestino}.` : " ⚠️ Email no enviado."}`,
       original: {
         comprobante: original.comprobante,
         cae: original.cae,
