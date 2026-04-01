@@ -125,8 +125,11 @@ const afip = new Afip({
 });
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASS },
+  family: 4 // ⚠️ Esta es la clave: fuerza el uso de IPv4
 });
 
 if (!GMAIL_USER || !GMAIL_APP_PASS) {
