@@ -2048,17 +2048,30 @@ app.post("/anular-comprobante", async (req, res) => {
       });
     }
 
-    const original = await buscarComprobanteGuardado({
+    let original = await buscarComprobanteGuardado({
       comprobante: comprobanteOriginal,
       pv: pvOriginal,
       nro: nroOriginal
     });
 
+    // Si no está en Supabase, creamos un objeto mínimo para que ARCA pueda procesar
     if (!original) {
-      return res.status(404).json({
-        ok: false,
-        message: "No encontré el comprobante original en la base"
-      });
+      console.log("⚠️ Comprobante no en base, procediendo con datos manuales...");
+      original = {
+        puntoVenta: pvOriginal || 5,
+        nroFactura: nroOriginal,
+        cuitCliente: req.body.cuitCliente || "", // Si podés, agregá este campo al modal manual
+        nombreCliente: "Cliente Externo (No en base)",
+        total: req.body.montoTotal || 0, // Necesitamos el total para saber cuánto anular
+        cbteTipo: 51 // Asumimos Factura M por defecto
+      };
+
+      if (!original.nroFactura || !original.total) {
+        return res.status(400).json({
+          ok: false,
+          message: "Para facturas antiguas no registradas, debés indicar Nro y Monto Total en el modal."
+        });
+      }
     }
 
     const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
