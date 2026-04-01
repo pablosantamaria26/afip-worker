@@ -2213,48 +2213,64 @@ app.post("/anular-comprobante", async (req, res) => {
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
     let ncEmailSent = false;
 
-    if (GMAIL_USER && GMAIL_APP_PASS && emailDestino) {
+    // ── Email NC vía Resend / Gmail (Sincrónico) ──
+    const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
+    let ncEmailSent = false;
+
+    if (emailDestino) {
       try {
-        await transporter.sendMail({
-          from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-          to: emailDestino,
-          subject: `Nota de Crédito ${pad(pvNc, 5)}-${pad(nroNC, 8)} - ${EMISOR.nombreVisible}`,
-          html: `
-            <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
-              <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
-                <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
-                  <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
-                </div>
-                <div style="padding:24px;">
-                  <div style="font-size:14px;margin-bottom:10px;">
-                    Se emitió una <strong>Nota de Crédito</strong> asociada al comprobante original.
-                  </div>
-                  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
-                    <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
-                    <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
-                    <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
-                    <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
-                    <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
-                    <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
-                    <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
-                  </div>
+        const subjectNC = `Nota de Crédito M ${ncComprobante} - ${EMISOR.nombreVisible}`;
+        const mailHtmlNC = `
+          <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
+            <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
+              <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
+                <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
+              </div>
+              <div style="padding:24px;">
+                <div style="font-size:14px;margin-bottom:10px;">Se emitió una <strong>Nota de Crédito M</strong> asociada.</div>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
+                  <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
+                  <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
+                  <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
+                  <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
+                  <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
+                  <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
+                  <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
                 </div>
               </div>
             </div>
-          `,
-          attachments: pdfBuffer?.length ? [{
-            filename: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}.pdf`,
-            content: pdfBuffer,
-            contentType: "application/pdf"
-          }] : []
-        });
+          </div>`;
 
+        if (resendClient) {
+          console.log("🚀 [NC] Enviando vía Resend API...");
+          await resendClient.emails.send({
+            from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+            to: emailDestino,
+            reply_to: GMAIL_USER,
+            subject: subjectNC,
+            html: mailHtmlNC,
+            attachments: pdfBuffer?.length ? [{
+              filename: `NC_${ncComprobante}.pdf`,
+              content: pdfBuffer
+            }] : []
+          });
+          ncEmailSent = true;
+        } else {
+          console.log("📧 [NC] Resend no configurado, intentando Gmail...");
+          await transporter.sendMail({
+            from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+            to: emailDestino,
+            subject: subjectNC,
+            html: mailHtmlNC,
+            attachments: pdfBuffer?.length ? [{ filename: `NC_${ncComprobante}.pdf`, content: pdfBuffer }] : []
+          });
+          ncEmailSent = true;
+        }
         await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
         console.log(`✅ [NC] Email enviado a ${emailDestino}`);
-        ncEmailSent = true;
       } catch (mailErr) {
-        await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message || "Error email NC", emailDestino);
-        console.error("⚠️ [NC] Falló email:", mailErr?.message || mailErr);
+        await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message, emailDestino);
+        console.error("⚠️ [NC] Falló envío de mail:", mailErr?.message);
       }
     }
 
