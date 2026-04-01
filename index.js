@@ -1752,7 +1752,7 @@ function inferCbteTipoFromComprobante(comp = "") {
   if (s.startsWith("C-")) return 11;
   if (s.startsWith("M-")) return 51;
   return CBTE_TIPO_REAL;
-}
+} 
 
 function inferNcTipoFromOriginal(originalCbteTipo) {
   return NC_TIPO_MAP[Number(originalCbteTipo)] || 53;
