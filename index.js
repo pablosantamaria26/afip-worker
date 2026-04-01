@@ -2144,17 +2144,35 @@ app.post("/anular-comprobante", async (req, res) => {
       nro: nroOriginal
     });
 
-    // Si no está en Supabase, creamos un objeto mínimo para que ARCA pueda procesar
+   // Si no está en Supabase, creamos un objeto mínimo para que ARCA pueda procesar
     if (!original) {
-      console.log("⚠️ Comprobante no en base, procediendo con datos manuales...");
+      console.log("⚠️ Comprobante no en base, procediendo con datos manuales e integrando Padrón ARCA...");
+      
+      const cuitManual = onlyDigits(req.body.cuitCliente);
+      let datosPadron = { nombre: "Cliente Externo", domicilioAfip: "" };
+
+      // Buscamos en el padrón de AFIP/ARCA usando el CUIT que pusiste en el modal
+      if (cuitManual && cuitManual.length === 11) {
+        datosPadron = await getReceptorDesdePadron(cuitManual);
+      }
+
       original = {
         puntoVenta: pvOriginal || 5,
         nroFactura: nroOriginal,
-        cuitCliente: req.body.cuitCliente || "", // Si podés, agregá este campo al modal manual
-        nombreCliente: "Cliente Externo (No en base)",
-        total: req.body.montoTotal || 0, // Necesitamos el total para saber cuánto anular
+        cuitCliente: cuitManual,
+        nombreCliente: datosPadron.nombre, // ¡Acá toma el nombre real de AFIP!
+        domicilio: datosPadron.domicilioAfip, // ¡Acá toma el domicilio de AFIP!
+        total: req.body.montoTotal || 0,
         cbteTipo: 51 // Asumimos Factura M por defecto
       };
+
+      if (!original.nroFactura || !original.total || !original.cuitCliente) {
+        return res.status(400).json({
+          ok: false,
+          message: "Para facturas antiguas no registradas, debés indicar Nro, CUIT y Monto Total en el modal."
+        });
+      }
+    }
 
       if (!original.nroFactura || !original.total) {
         return res.status(400).json({
