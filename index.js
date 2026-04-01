@@ -2209,9 +2209,6 @@ app.post("/anular-comprobante", async (req, res) => {
       result.CAE
     );
 
-    // ── Email NC sincrónico ──
-    const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
-    let ncEmailSent = false;
 
     // ── Email NC vía Resend / Gmail (Sincrónico) ──
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
