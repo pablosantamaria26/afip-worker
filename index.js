@@ -1078,7 +1078,7 @@ app.post("/facturar", async (req, res) => {
       : round2(partes.reduce((a, x) => a + x, 0));
 
     const resultados = [];
-    const fecha = todayISO();
+    const fecha = req.body.fechaNC || todayISO();
     const cbteFch = yyyymmdd(fecha);
     const factorUsado = (factor > 0 && factor < 1) ? factor : 1;
     let acumuladoSubBruto = 0;
