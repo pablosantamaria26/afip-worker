@@ -139,10 +139,7 @@ if (!GMAIL_USER || !GMAIL_APP_PASS) {
   console.log(`✅ [Email] Gmail configurado para: ${GMAIL_USER}`);
 }
 
-// ── Verificar Gmail al arrancar ────────────────────────────────
-transporter.verify()
-  .then(() => console.log("✅ [Email] Gmail verificado — SMTP listo"))
-  .catch(err => console.error("❌ [Email] Gmail NO pudo verificar SMTP:", err?.message || err));
+// Gmail configurado como fallback (envíos van por Resend)
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -1060,29 +1057,19 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
       </div>`;
 
     // --- LÓGICA DE ENVÍO ---
-    if (resendClient) {
-      console.log("🚀 Enviando por Resend API...");
-      await resendClient.emails.send({
-        from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
-        to: emailAEnviar,
-        reply_to: GMAIL_USER,
-        subject: subject,
-        html: mailHtml,
-        attachments: mailAttachments.map(at => ({
-          filename: at.filename,
-          content: at.content
-        }))
-      });
-    } else {
-      console.log("📧 Resend no configurado, usando Gmail...");
-      await transporter.sendMail({
-        from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-        to: emailAEnviar,
-        subject: subject,
-        html: mailHtml,
-        attachments: mailAttachments
-      });
-    }
+    if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
+    console.log("🚀 Enviando por Resend API...");
+    await resendClient.emails.send({
+      from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+      to: emailAEnviar,
+      reply_to: GMAIL_USER,
+      subject: subject,
+      html: mailHtml,
+      attachments: mailAttachments.map(at => ({
+        filename: at.filename,
+        content: at.content
+      }))
+    });
 
     for (const p of mailParts) {
       await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
@@ -1785,13 +1772,9 @@ async function enviarResumenMensual(anioForzar, mesForzar) {
   const htmlMail = buildResumenHTMLProfesional(anio, mes, facturas);
   const subject  = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
   const toAddress = process.env.RESEND_API_KEY ? "santamariapablodaniel@gmail.com" : "distribuidoramercadolimpio@gmail.com";
-  if (resendClient) {
-    await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
-    console.log(`✅ [Resumen] Enviado vía Resend a ${toAddress}`);
-  } else {
-    await transporter.sendMail({ from: `"Mercado Limpio" <${GMAIL_USER}>`, to: toAddress, subject, html: htmlMail });
-    console.log(`✅ [Resumen] Enviado vía Gmail a ${toAddress}`);
-  }
+  if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
+  await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
+  console.log(`✅ [Resumen] Enviado vía Resend a ${toAddress}`);
 }
 
 let _ultimoResumenEnviado = null;
@@ -2350,7 +2333,9 @@ app.post("/anular-comprobante", async (req, res) => {
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 25px 0; border-left: 4px solid #3b82f6;">
                 <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; text-transform: uppercase;">Detalle de la operación</h3>
                 <div style="font-size: 13px; color: #475569; line-height: 1.8;">
-                  <div><strong>CUIT Cliente:</strong> ${safeText(original.cuitCliente)}</div>
+                  <div><strong>Razón Social:</strong> ${safeText(original.nombreCliente)}</div>
+                  <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
+                  ${original.domicilio ? `<div><strong>Domicilio Fiscal:</strong> ${safeText(original.domicilio)}</div>` : ""}
                   <div><strong>Comprobante Original:</strong> ${safeText(originalCompText)}</div>
                   <div><strong>Nota de Crédito:</strong> <span style="color: #0f172a; font-weight: bold;">${safeText(ncComprobante)}</span></div>
                   <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
@@ -2376,31 +2361,20 @@ app.post("/anular-comprobante", async (req, res) => {
             </div>
           </div>`;
 
-        if (resendClient) {
-          console.log("🚀 [NC] Enviando vía Resend API...");
-          await resendClient.emails.send({
-            from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
-            to: emailDestino,
-            reply_to: GMAIL_USER,
-            subject: subjectNC,
-            html: mailHtmlNC,
-            attachments: pdfBuffer?.length ? [{
-              filename: `NC_${ncComprobante}.pdf`,
-              content: pdfBuffer
-            }] : []
-          });
-          ncEmailSent = true;
-        } else {
-          console.log("📧 [NC] Resend no configurado, intentando Gmail...");
-          await transporter.sendMail({
-            from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-            to: emailDestino,
-            subject: subjectNC,
-            html: mailHtmlNC,
-            attachments: pdfBuffer?.length ? [{ filename: `NC_${ncComprobante}.pdf`, content: pdfBuffer }] : []
-          });
-          ncEmailSent = true;
-        }
+        if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
+        console.log("🚀 [NC] Enviando vía Resend API...");
+        await resendClient.emails.send({
+          from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+          to: emailDestino,
+          reply_to: GMAIL_USER,
+          subject: subjectNC,
+          html: mailHtmlNC,
+          attachments: pdfBuffer?.length ? [{
+            filename: `NC_${ncComprobante}.pdf`,
+            content: pdfBuffer
+          }] : []
+        });
+        ncEmailSent = true;
         await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
         console.log(`✅ [NC] Email enviado a ${emailDestino}`);
       } catch (mailErr) {
