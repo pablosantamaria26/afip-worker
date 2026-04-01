@@ -956,7 +956,7 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
 
     const showBothDom = domRemitoMail && domAfipMail && normAddr(domRemitoMail) !== normAddr(domAfipMail);
     const domicilioMailHtml = showBothDom
-      ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (AFIP):</strong> ${safeText(domAfipMail)}</div></div>`
+      ? `<div style="margin-top:6px;"><div><strong>Domicilio (Entrega/Remito):</strong> ${safeText(domRemitoMail)}</div><div><strong>Domicilio Fiscal (ARCA):</strong> ${safeText(domAfipMail)}</div></div>`
       : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
 
     const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
@@ -964,8 +964,8 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
     const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
 
     const subject = mailParts.length > 1
-      ? `Facturas M (${mailParts.length} partes) - ${EMISOR.nombreVisible}`
-      : `Factura M ${mailParts[0].comprobante} - ${EMISOR.nombreVisible}`;
+      ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible}`
+      : `Factura A ${mailParts[0].comprobante} - ${EMISOR.nombreVisible}`;
 
     const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) clase M.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div></div></div></div>`;
 
