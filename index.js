@@ -2223,31 +2223,55 @@ app.post("/anular-comprobante", async (req, res) => {
     );
 
 
-    // ── Email NC vía Resend / Gmail (Sincrónico) ──
+// ── Email NC vía Resend / Gmail (Sincrónico) ──
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
     let ncEmailSent = false;
 
     if (emailDestino) {
       try {
-        const subjectNC = `Nota de Crédito M ${ncComprobante} - ${EMISOR.nombreVisible}`;
+        const subjectNC = `Nota de Crédito ${ncComprobante} - ${EMISOR.nombreVisible}`;
+        const originalCompText = original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura);
+        
+        // NUEVO DISEÑO HTML PROFESIONAL Y LIMPIO (Tonos azules y grises)
         const mailHtmlNC = `
-          <div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;">
-            <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;">
-              <div style="background:#7f1d1d;color:#fff;padding:18px 24px;">
-                <div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div>
-              </div>
-              <div style="padding:24px;">
-                <div style="font-size:14px;margin-bottom:10px;">Se emitió una <strong>Nota de Crédito M</strong> asociada.</div>
-                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
-                  <div><strong>Cliente:</strong> ${safeText(original.nombreCliente)}</div>
-                  <div><strong>CUIT:</strong> ${safeText(original.cuitCliente)}</div>
-                  <div><strong>Comprobante original:</strong> ${safeText(original.comprobante || "")}</div>
-                  <div><strong>NC emitida:</strong> ${safeText(ncComprobante)}</div>
-                  <div><strong>CAE NC:</strong> ${safeText(result.CAE)}</div>
+          <div style="font-family: 'Segoe UI', Helvetica, Arial, sans-serif; color: #1a1a1a; max-width: 600px; margin: 20px auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+            <div style="background-color: #0f172a; padding: 30px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px; font-weight: 900;">${safeText(EMISOR.nombreVisible)}</h1>
+              <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Comprobante de Ajuste (Anulación)</p>
+            </div>
+            
+            <div style="padding: 30px;">
+              <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 0;">Estimado/a <strong>${safeText(original.nombreCliente)}</strong>,</p>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+                Le informamos que se ha generado una <strong>Nota de Crédito</strong> a su favor. Este documento legal anula o ajusta el comprobante emitido anteriormente.
+              </p>
+              
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 25px 0; border-left: 4px solid #3b82f6;">
+                <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; text-transform: uppercase;">Detalle de la operación</h3>
+                <div style="font-size: 13px; color: #475569; line-height: 1.8;">
+                  <div><strong>CUIT Cliente:</strong> ${safeText(original.cuitCliente)}</div>
+                  <div><strong>Comprobante Original:</strong> ${safeText(originalCompText)}</div>
+                  <div><strong>Nota de Crédito:</strong> <span style="color: #0f172a; font-weight: bold;">${safeText(ncComprobante)}</span></div>
                   <div><strong>Motivo:</strong> ${safeText(motivo)}</div>
-                  <div><strong>Total anulado:</strong> $ ${formatMoneyAR(totalOriginal)}</div>
+                  <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #cbd5e1; font-size: 15px; color: #0f172a;">
+                    <strong>Total Ajustado:</strong> $ ${formatMoneyAR(totalOriginal)}
+                  </div>
                 </div>
               </div>
+              
+              <p style="font-size: 14px; color: #64748b; line-height: 1.6; background: #f1f5f9; padding: 12px; border-radius: 6px; text-align: center;">
+                📎 <strong>Importante:</strong> Adjunto a este correo encontrará el archivo PDF oficial autorizado por ARCA/AFIP.
+              </p>
+              
+              <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-top: 30px;">
+                Atentamente,<br>
+                <strong>Administración Mercado Limpio</strong>
+              </p>
+            </div>
+            
+            <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0;">Este es un envío automático desde el sistema de facturación.</p>
+              <p style="margin: 5px 0 0 0;">Buenos Aires, Argentina</p>
             </div>
           </div>`;
 
