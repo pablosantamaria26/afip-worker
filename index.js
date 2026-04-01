@@ -946,23 +946,8 @@ app.post("/debug/preview", async (req, res) => {
   } catch (err) { res.status(500).send("Error generando vista previa: " + err.message); }
 });
 
-// ================================================================
-// ✅ HELPER — enviar email de factura (sincrónico, con timeout)
-// ================================================================
 async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente, domicilioRemitoIn, condicionVenta, subtotalBrutoIn, descuentoPctIn, descuentoImporteIn, totalFinalIn, emailAEnviar }) {
-  console.log("📨 [Email] Inicio envío sincrónico...");
-  console.log("📨 [Email] Destino:", emailAEnviar);
-  console.log("📨 [Email] Adjuntos:", mailAttachments.length);
-  console.log("📨 [Email] Gmail user:", GMAIL_USER || "(vacío)");
-
-  if (!GMAIL_USER || !GMAIL_APP_PASS) {
-    const errMsg = "Credenciales Gmail no configuradas";
-    console.error("❌ [Email]", errMsg);
-    for (const p of mailParts) {
-      await actualizarEstadoEmail(p.comprobante, "failed", errMsg, emailAEnviar);
-    }
-    return { sent: false, error: errMsg };
-  }
+  console.log("📨 [Email] Inicio envío vía Resend/Gmail...");
 
   try {
     const domRemitoMail = String(domicilioRemitoIn || "").trim();
@@ -975,38 +960,51 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
       : `<div style="margin-top:6px;"><strong>Domicilio:</strong> ${safeText(domRemitoMail || domAfipMail || "Domicilio no informado")}</div>`;
 
     const showDescGlobal = descuentoImporteIn > 0 && subtotalBrutoIn > 0 && totalFinalIn > 0;
-
-    const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">A-${pad(p.pv,5)}-${pad(p.nro,8)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
+    const partsRows = mailParts.map(p => `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0;">Parte ${p.parte}/${p.totalPartes}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">${p.comprobante}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;">CAE ${safeText(p.cae)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:900;">$ ${formatMoneyAR(p.total)}</td></tr>`).join("");
     const totalMail = round2(mailParts.reduce((a, x) => a + x.total, 0));
 
     const subject = mailParts.length > 1
-      ? `Facturas A (${mailParts.length} partes) - ${EMISOR.nombreVisible} - ${safeText(rec.nombre)}`
-      : `Factura A ${pad(mailParts[0].pv,5)}-${pad(mailParts[0].nro,8)} - ${EMISOR.nombreVisible}`;
+      ? `Facturas M (${mailParts.length} partes) - ${EMISOR.nombreVisible}`
+      : `Factura M ${mailParts[0].comprobante} - ${EMISOR.nombreVisible}`;
 
-    const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) correspondiente(s) a su compra.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div><div style="margin-top:18px;text-align:center;color:#64748b;font-size:12px;">Comprobantes autorizados por ARCA.</div></div></div></div>`;
+    const mailHtml = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:30px;"><div style="max-width:720px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;"><div style="background:#0f172a;color:#fff;padding:18px 24px;"><div style="font-size:18px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</div></div><div style="padding:24px;"><div style="font-size:14px;margin-bottom:10px;">Estimado/a <strong>${safeText(rec.nombre)}</strong>,</div><div style="color:#475569;font-size:13px;">Adjuntamos el/los comprobante(s) electrónico(s) clase M.</div><div style="margin-top:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;"><div><strong>CUIT:</strong> ${safeText(cuitCliente)}</div>${domicilioMailHtml}<div style="margin-top:8px;"><strong>Condición de Venta:</strong> ${safeText(condicionVenta)}</div>${showDescGlobal ? `<div style="margin-top:10px;"><div><strong>Subtotal:</strong> $ ${formatMoneyAR(subtotalBrutoIn)}</div><div><strong>Descuento (${formatMoneyAR(descuentoPctIn)}%):</strong> -$ ${formatMoneyAR(descuentoImporteIn)}</div><div><strong>Total:</strong> $ ${formatMoneyAR(totalFinalIn)}</div></div>` : ""}</div><div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;"><div style="background:#1e293b;color:#fff;padding:12px 14px;font-weight:900;">Detalle de comprobantes</div><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px;text-align:left;">Parte</th><th style="padding:10px;text-align:left;">Comprobante</th><th style="padding:10px;text-align:left;">CAE</th><th style="padding:10px;text-align:right;">Total</th></tr></thead><tbody>${partsRows}</tbody><tfoot><tr><td colspan="3" style="padding:12px;text-align:right;font-weight:900;">TOTAL FACTURADO</td><td style="padding:12px;text-align:right;font-weight:900;">$ ${formatMoneyAR(totalMail)}</td></tr></tfoot></table></div></div></div></div>`;
 
-    await transporter.sendMail({
-      from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
-      to: emailAEnviar,
-      subject,
-      html: mailHtml,
-      attachments: mailAttachments
-    });
+    // --- LÓGICA DE ENVÍO ---
+    if (resendClient) {
+      console.log("🚀 Enviando por Resend API...");
+      await resendClient.emails.send({
+        from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+        to: emailAEnviar,
+        reply_to: GMAIL_USER,
+        subject: subject,
+        html: mailHtml,
+        attachments: mailAttachments.map(at => ({
+          filename: at.filename,
+          content: at.content
+        }))
+      });
+    } else {
+      console.log("📧 Resend no configurado, usando Gmail...");
+      await transporter.sendMail({
+        from: `"${EMISOR.nombreVisible}" <${GMAIL_USER}>`,
+        to: emailAEnviar,
+        subject: subject,
+        html: mailHtml,
+        attachments: mailAttachments
+      });
+    }
 
     for (const p of mailParts) {
       await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
     }
-
-    console.log(`✅ [Email] Enviado a ${emailAEnviar} — ${mailParts.length} factura(s)`);
     return { sent: true, error: "" };
 
-  } catch (mailErr) {
-    const errMsg = mailErr?.message || "Error desconocido";
+  } catch (err) {
+    console.error("❌ [Email] Error crítico:", err.message);
     for (const p of mailParts) {
-      await actualizarEstadoEmail(p.comprobante, "failed", errMsg, emailAEnviar);
+      await actualizarEstadoEmail(p.comprobante, "failed", err.message, emailAEnviar);
     }
-    console.error("⚠️ [Email] Falló:", errMsg);
-    return { sent: false, error: errMsg };
+    return { sent: false, error: err.message };
   }
 }
 
