@@ -2409,3 +2409,481 @@ app.post("/anular-comprobante", async (req, res) => {
     });
   }
 });
+
+// ================================================================
+// MÓDULO EXTRACTO BANCARIO — Catálogo + algoritmo + endpoints
+// ================================================================
+
+const CATALOGO_MAKE = [
+  { desc: "Make trapo piso blanco profesional", precio: 5200 },
+  { desc: "Make trapo piso nido abeja blanco", precio: 5500 },
+  { desc: "Make trapo piso gris suave", precio: 4900 },
+  { desc: "Make trapo rayado", precio: 4800 },
+  { desc: "Make franela naranja", precio: 3200 },
+  { desc: "Make paño microfibra", precio: 3600 },
+  { desc: "Make paño amarillo x 3 un", precio: 4100 },
+  { desc: "Make rejilla americana", precio: 3100 },
+  { desc: "Make rejilla cocina", precio: 2900 },
+  { desc: "Make rejilla multicolor rayadita", precio: 2600 },
+  { desc: "Make rejilla toalla color", precio: 2800 },
+  { desc: "Make esponja acero 12 gr", precio: 2100 },
+  { desc: "Make esponja acero 15 gr", precio: 2400 },
+  { desc: "Make esponja bronce 12 gr", precio: 2300 },
+  { desc: "Make fibra esponja c/salvauñas", precio: 2800 },
+  { desc: "Make fibra esponja lisa", precio: 2400 },
+  { desc: "Make fibra esponja x 3 un", precio: 6500 },
+  { desc: "Make esponja fibra extra fuerte rosa", precio: 2600 },
+  { desc: "Make balde 13 Lts", precio: 12500 },
+  { desc: "Make balde 17 Lts", precio: 15800 },
+  { desc: "Make balde traslucido 10 lt", precio: 9200 },
+  { desc: "Make balde plastico 11 L", precio: 8800 },
+  { desc: "Make bolsa consorcio 60 x 90", precio: 3500 },
+  { desc: "Make bolsa consorcio 80 x 110", precio: 4800 },
+  { desc: "Make bolsa consorcio 90 x 120", precio: 5800 },
+  { desc: "Make bolsa de residuos 45 x 60 en rollo", precio: 2900 },
+  { desc: "Make bolsa residuo 50 x 70", precio: 3200 },
+  { desc: "Make guante classic M", precio: 4200 },
+  { desc: "Make guante classic G", precio: 4500 },
+  { desc: "Make guante soft M", precio: 5100 },
+  { desc: "Make guante soft G", precio: 5400 },
+  { desc: "Make escoba recta exterior", precio: 7800 },
+  { desc: "Make escobillon 5 hileras", precio: 8500 },
+  { desc: "Make escobillon 6 hileras", precio: 9200 },
+  { desc: "Make escobillon Black", precio: 9800 },
+  { desc: "Make secador doble goma 34cm", precio: 6800 },
+  { desc: "Make secador doble goma 41cm", precio: 7900 },
+  { desc: "Make secador Gold", precio: 8200 },
+  { desc: "Make lampazo algodon blanco", precio: 9800 },
+  { desc: "Make lampazo microfibra bicolor", precio: 12500 },
+  { desc: "Make lampazo sintetico", precio: 11200 },
+  { desc: "Make pulverizador 1 lts", precio: 5600 },
+  { desc: "Make pulverizador 750 cc", precio: 4800 },
+  { desc: "Make cepillo mano anatomico", precio: 3800 },
+  { desc: "Make vela blanca larga", precio: 2800 },
+  { desc: "Make vela roja parafina", precio: 2900 },
+  { desc: "Make bolsa ecologica", precio: 1800 },
+  { desc: "Make sopapa c/cabo", precio: 3200 },
+  { desc: "Make cepillo lava jean", precio: 4200 },
+  { desc: "Make escobilla c/base", precio: 3500 },
+  { desc: "Make bolsas plasticas c/cierre grande", precio: 2100 },
+  { desc: "Make canasto c/tapa 17 lt", precio: 14200 },
+];
+
+const CATALOGO_ROMYL = [
+  { desc: "Romyl trapo piso blanco", precio: 4900 },
+  { desc: "Romyl trapo piso gris", precio: 4600 },
+  { desc: "Romyl trapo piso rayado", precio: 4400 },
+  { desc: "Romyl rejilla multiuso", precio: 2800 },
+  { desc: "Romyl rejilla color nido abeja", precio: 2700 },
+  { desc: "Romyl rejilla microfibra", precio: 3100 },
+  { desc: "Romyl esponja acero 13 gr", precio: 2200 },
+  { desc: "Romyl esponja bronce 13 gr", precio: 2400 },
+  { desc: "Romyl fibra esponja", precio: 2500 },
+  { desc: "Romyl fibra esponja 3 un", precio: 6800 },
+  { desc: "Romyl paño amarillo 1 un", precio: 1800 },
+  { desc: "Romyl franela naranja", precio: 3100 },
+  { desc: "Romyl balde 12 lt", precio: 11800 },
+  { desc: "Romyl balde ovalado 14l c/escurridor", precio: 14500 },
+  { desc: "Romyl secador negro 30 cm", precio: 5800 },
+  { desc: "Romyl secador negro 40 cm", precio: 6900 },
+  { desc: "Romyl lampazo algodon blanco", precio: 9200 },
+  { desc: "Romyl lampazo algodon gris", precio: 9200 },
+  { desc: "Romyl sopapa roja", precio: 2800 },
+  { desc: "Romyl cepillo piso", precio: 5800 },
+  { desc: "Romyl vela larga", precio: 2700 },
+  { desc: "Romyl escobilla baño palito", precio: 3200 },
+];
+
+const CATALOGO_SAMANTHA = [
+  { desc: "Samantha balde 10 lts", precio: 10200 },
+  { desc: "Samantha balde oval c/escurridor", precio: 13500 },
+  { desc: "Samantha escoba Super", precio: 7200 },
+  { desc: "Samantha escobillon interior multiuso", precio: 8800 },
+  { desc: "Samantha secador plastico 30 cm", precio: 4800 },
+  { desc: "Samantha secador plastico 40 cm", precio: 5900 },
+  { desc: "Samantha escobillon bicolor con cabo", precio: 9500 },
+];
+
+const CATALOGO_TODOESPONJA = [
+  { desc: "Todoesponja esponja acero 15 gr", precio: 2400 },
+  { desc: "Todoesponja esponja bronce 15 gr", precio: 2600 },
+  { desc: "Todoesponja fibra esponja", precio: 2700 },
+  { desc: "Todoesponja fibra esponja c/salvauñas", precio: 3100 },
+  { desc: "Todoesponja rejilla americana", precio: 3200 },
+  { desc: "Todoesponja trapo piso blanco clasico", precio: 4800 },
+  { desc: "Todoesponja trapo piso gris clasico", precio: 4600 },
+];
+
+// Apellidos chinos más comunes en Argentina
+const APELLIDOS_CHINOS = new Set([
+  "li","wang","zhang","chen","liu","yang","huang","zhao","wu","zhou",
+  "xu","sun","ma","zhu","hu","guo","he","lin","luo","zheng","xie",
+  "tang","han","cao","deng","xiao","jiang","cai","peng","lu","ye",
+  "su","cheng","wei","feng","dai","yin","dong","yu","qi","qian",
+  "rong","fang","wen","hua","ding","yan","gao","shi","liang","jia",
+  "mao","cui","qiu","du","yuan","wan","ni","lei","zhong","hao",
+  "fan","tao","yao","meng","xiong","kang","long","shen","bao",
+  "shao","niu","zeng","qin","gui","zhan","ling","jin","yue","pan",
+  "lai","gong","gu","fu","huo","tian","bai","hou","yin","kong",
+  "sheng","chai","zou","lv","mu","weng","xun","ren","ming","zuo",
+  "piao","bian","cui","chao","nong","duan","fu","lu"
+]);
+
+function detectarNombreChino(nombre) {
+  const n = String(nombre || "").toLowerCase().replace(/[^a-záéíóúüñ\s]/gi, "");
+  return n.split(/\s+/).some(w => APELLIDOS_CHINOS.has(w));
+}
+
+function buildItemsParaMonto(montoTotal) {
+  const R2 = n => Math.round((n + 1e-9) * 100) / 100;
+  const shuffle = arr => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  const makePool = shuffle(CATALOGO_MAKE);
+  const otroPool = shuffle([...CATALOGO_ROMYL, ...CATALOGO_SAMANTHA, ...CATALOGO_TODOESPONJA]);
+
+  const nMake = 3 + Math.floor(Math.random() * 2); // 3 o 4 items Make
+  const nOtro = 2 + Math.floor(Math.random() * 2); // 2 o 3 items otros
+  const selectedMake = makePool.slice(0, nMake);
+  const selectedOtro = otroPool.slice(0, nOtro);
+
+  const targetMake = R2(montoTotal * 0.60);
+  const targetOtro = R2(montoTotal - targetMake);
+
+  function fillItems(products, target) {
+    const items = [];
+    let remaining = target;
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const isLast = i === products.length - 1;
+      if (isLast) {
+        const qty = Math.max(1, Math.round(remaining / p.precio));
+        const precioAjustado = R2(remaining / qty);
+        items.push({ descripcion: p.desc, cantidad: qty, precioConIva: precioAjustado, subtotalConIva: R2(qty * precioAjustado) });
+      } else {
+        const share = target / products.length;
+        const qty = Math.max(1, Math.round(share / p.precio));
+        const subtotal = R2(qty * p.precio);
+        items.push({ descripcion: p.desc, cantidad: qty, precioConIva: p.precio, subtotalConIva: subtotal });
+        remaining = R2(remaining - subtotal);
+      }
+    }
+    return items;
+  }
+
+  const all = [...fillItems(selectedMake, targetMake), ...fillItems(selectedOtro, targetOtro)];
+
+  // Cierre final: corregir cualquier diferencia residual de redondeo
+  const totalCalc = R2(all.reduce((s, x) => s + x.subtotalConIva, 0));
+  const diff = R2(montoTotal - totalCalc);
+  if (Math.abs(diff) >= 0.01 && all.length > 0) {
+    const last = all[all.length - 1];
+    last.subtotalConIva = R2(last.subtotalConIva + diff);
+    if (last.cantidad > 0) last.precioConIva = R2(last.subtotalConIva / last.cantidad);
+  }
+
+  return all;
+}
+
+// ── POST /procesar-extracto ─────────────────────────────────────
+// Recibe imagen o PDF del extracto bancario, devuelve transferencias
+// entrantes de clientes chinos detectadas con Gemini.
+app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "No se recibió archivo" });
+    if (!geminiModel) return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" });
+
+    const filePath = req.file.path;
+    const mimeType = req.file.mimetype;
+    const isPdf = mimeType === "application/pdf" || req.file.originalname?.toLowerCase().endsWith(".pdf");
+
+    const PROMPT_EXTRACTO = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).
+
+Para cada movimiento incluí:
+- fecha: formato YYYY-MM-DD (o null si no se puede determinar)
+- nombre: nombre completo del ordenante/remitente
+- monto: número positivo (sin símbolo $, sin puntos de miles)
+- descripcion: descripción del movimiento
+- cuit: CUIT del remitente si aparece en el texto (null si no está)
+
+Ignorá débitos, retenciones, comisiones y movimientos negativos.
+Devolvé SOLO el JSON, sin markdown, sin texto adicional.
+Formato exacto: {"movimientos":[{"fecha":"YYYY-MM-DD","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+
+    let movimientos = [];
+
+    if (isPdf) {
+      // PDF: extraer texto con pdf-parse y enviarlo a Gemini
+      const fileBuffer = fs.readFileSync(filePath);
+      let textoPdf = "";
+      try {
+        const parsed = await pdfParse(fileBuffer);
+        textoPdf = parsed.text || "";
+      } catch (e) {
+        console.warn("⚠️ [Extracto] pdf-parse falló, intentando como imagen:", e?.message);
+      }
+
+      if (textoPdf.trim().length > 50) {
+        const result = await geminiModel.generateContent(`${PROMPT_EXTRACTO}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
+        const raw = result.response.text().trim();
+        const json = raw.replace(/```json|```/gi, "").trim();
+        const parsed = JSON.parse(json);
+        movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+      } else {
+        // PDF escaneado — tratar como imagen
+        const b64 = fs.readFileSync(filePath).toString("base64");
+        const result = await geminiModel.generateContent([
+          PROMPT_EXTRACTO,
+          { inlineData: { data: b64, mimeType: "application/pdf" } }
+        ]);
+        const raw = result.response.text().trim();
+        const json = raw.replace(/```json|```/gi, "").trim();
+        const parsed = JSON.parse(json);
+        movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+      }
+    } else {
+      // Imagen (JPG, PNG, WEBP)
+      const b64 = fs.readFileSync(filePath).toString("base64");
+      const result = await geminiModel.generateContent([
+        PROMPT_EXTRACTO,
+        { inlineData: { data: b64, mimeType: mimeType } }
+      ]);
+      const raw = result.response.text().trim();
+      const json = raw.replace(/```json|```/gi, "").trim();
+      const parsed = JSON.parse(json);
+      movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+    }
+
+    // Limpiar archivo temporal
+    try { fs.unlinkSync(filePath); } catch {}
+
+    // Filtrar solo transferencias de clientes chinos
+    const todas = movimientos.map(m => ({
+      fecha:       String(m.fecha || ""),
+      nombre:      String(m.nombre || ""),
+      monto:       Math.abs(Number(String(m.monto || "0").replace(/\./g, "").replace(",", "."))),
+      descripcion: String(m.descripcion || ""),
+      cuit:        m.cuit ? onlyDigits(String(m.cuit)) : null,
+      esChino:     detectarNombreChino(m.nombre)
+    })).filter(m => m.monto > 0);
+
+    const chinos = todas.filter(m => m.esChino);
+
+    console.log(`✅ [Extracto] Total movimientos: ${todas.length} | Clientes chinos: ${chinos.length}`);
+
+    return res.json({
+      ok: true,
+      total: todas.length,
+      detectados: chinos.length,
+      transferencias: chinos,
+      todas: DEBUG ? todas : undefined
+    });
+
+  } catch (err) {
+    console.error("❌ [/procesar-extracto]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al procesar extracto" });
+  }
+});
+
+// ── POST /facturar-extracto ─────────────────────────────────────
+// Recibe array de transferencias y emite una factura por cada una.
+// Genera items automáticamente con buildItemsParaMonto (60% Make / 40% otros).
+// Devuelve resumen consolidado y envía email.
+app.post("/facturar-extracto", async (req, res) => {
+  try {
+    const transferencias = Array.isArray(req.body.transferencias) ? req.body.transferencias : [];
+    if (transferencias.length === 0) return res.status(400).json({ ok: false, message: "Sin transferencias" });
+
+    const condicionVenta = String(req.body.condicionVenta || "Transferencia Bancaria");
+    const emailReporte   = String(req.body.emailReporte || "santamariapablodaniel@gmail.com");
+    const fecha = todayISO();
+    const cbteFch = yyyymmdd(fecha);
+    const pv = await getPtoVentaSeguro();
+
+    const resultados = [];
+    let totalFacturado = 0;
+    let errores = 0;
+
+    for (const t of transferencias) {
+      const cuitCliente = onlyDigits(String(t.cuit || ""));
+      const monto = Math.abs(Number(t.monto || 0));
+      const nombre = String(t.nombre || "Cliente");
+
+      if (cuitCliente.length !== 11 || monto <= 0) {
+        resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
+        errores++;
+        continue;
+      }
+
+      try {
+        const items = buildItemsParaMonto(monto);
+
+        // Calcular importes fiscales
+        const impTotal = round2(items.reduce((a, x) => a + Number(x.subtotalConIva || 0), 0));
+        const impNeto  = round2(impTotal / 1.21);
+        const impIVA   = round2(impTotal - impNeto);
+
+        const rec = await getReceptorDesdePadron(cuitCliente);
+        const nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+
+        const voucherData = {
+          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+          DocTipo: 80, DocNro: Number(cuitCliente),
+          CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
+          ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
+          ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
+          MonId: "PES", MonCotiz: 1,
+          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+        };
+
+        const afipResult = await afip.ElectronicBilling.createVoucher(voucherData);
+
+        const qrPayload = {
+          ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+          tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+          moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
+          tipoCodAut: "E", codAut: Number(afipResult.CAE)
+        };
+        const qrDataUrl = await QRCode.toDataURL(
+          `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+          { margin: 0, width: 170 }
+        );
+
+        const itemsCalc = items.map(it => ({
+          ...it,
+          subtotalNeto: round2(Number(it.subtotalConIva) / 1.21),
+          precioNeto: round2((Number(it.subtotalConIva) / 1.21) / it.cantidad)
+        }));
+
+        const htmlPDF = buildFacturaHtml({
+          receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
+          fechaISO: fecha, pv, nro, items: itemsCalc,
+          neto: impNeto, iva: impIVA, total: impTotal,
+          cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
+          condicionVenta, qrDataUrl, isPreview: false
+        });
+
+        const pdfRes = await afip.ElectronicBilling.createPDF({
+          html: htmlPDF, file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+          options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
+        });
+
+        let pdfBuffer = null;
+        try {
+          await new Promise(r => setTimeout(r, 1500));
+          pdfBuffer = await downloadToBuffer(pdfRes.file);
+        } catch {}
+
+        let pdfPublicUrl = "";
+        try {
+          pdfPublicUrl = pdfBuffer?.length
+            ? await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`)
+            : String(pdfRes.file || "");
+        } catch { pdfPublicUrl = String(pdfRes.file || ""); }
+
+        const comprobante = `M-${pad(pv, 5)}-${pad(nro, 8)}`;
+
+        await guardarComprobanteGeneralEnDB({
+          comprobante, cbteTipo: CBTE_TIPO_REAL,
+          cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
+          nro, pv, cae: afipResult.CAE, impTotal,
+          pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
+          fecha, items, emailAEnviar: DEFAULT_EMAIL
+        });
+
+        totalFacturado = round2(totalFacturado + impTotal);
+        resultados.push({
+          ok: true, nombre: rec.nombre, cuit: cuitCliente,
+          comprobante, cae: afipResult.CAE, total: impTotal, pdfUrl: pdfPublicUrl
+        });
+        console.log(`✅ [Extracto] Factura emitida: ${comprobante} | CUIT ${cuitCliente} | $${impTotal}`);
+
+      } catch (err) {
+        console.error(`❌ [Extracto] Error en CUIT ${cuitCliente}:`, err?.message);
+        resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: err?.message || "Error AFIP" });
+        errores++;
+      }
+    }
+
+    // ── Enviar email con resumen consolidado ─────────────────────
+    const ok_results = resultados.filter(r => r.ok);
+    const htmlReporte = `
+      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;color:#1a1a1a;">
+        <div style="background:#0f172a;padding:28px 24px;border-radius:12px 12px 0 0;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">Mercado Limpio</h1>
+          <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Reporte de Facturación — Extracto Bancario</p>
+        </div>
+        <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-top:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;">
+            <div style="background:#fff;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;">
+              <div style="font-size:28px;font-weight:900;color:#1C1C1E;">${ok_results.length}</div>
+              <div style="font-size:11px;color:#8E8E93;font-weight:700;text-transform:uppercase;margin-top:4px;">Facturas</div>
+            </div>
+            <div style="background:linear-gradient(135deg,#34C759,#248A3D);border-radius:10px;padding:16px;text-align:center;">
+              <div style="font-size:18px;font-weight:900;color:#fff;">$${formatMoneyAR(totalFacturado)}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.8);font-weight:700;text-transform:uppercase;margin-top:4px;">Total</div>
+            </div>
+            <div style="background:#fff;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;">
+              <div style="font-size:28px;font-weight:900;color:${errores > 0 ? "#FF3B30" : "#34C759"};">${errores}</div>
+              <div style="font-size:11px;color:#8E8E93;font-weight:700;text-transform:uppercase;margin-top:4px;">Errores</div>
+            </div>
+          </div>
+          <h3 style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 12px;">Detalle de comprobantes</h3>
+          ${ok_results.map(r => `
+            <div style="background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-weight:800;font-size:14px;">${safeText(r.nombre)}</div>
+                <div style="font-size:12px;color:#64748b;margin-top:2px;">CUIT: ${r.cuit} · ${r.comprobante}</div>
+                <div style="font-size:11px;color:#94a3b8;font-family:monospace;margin-top:1px;">CAE: ${r.cae}</div>
+              </div>
+              <div style="font-weight:900;font-size:15px;color:#1C1C1E;text-align:right;">
+                $${formatMoneyAR(r.total)}
+                ${r.pdfUrl ? `<br><a href="${r.pdfUrl}" style="font-size:11px;color:#007AFF;font-weight:600;">PDF ↗</a>` : ""}
+              </div>
+            </div>`).join("")}
+          ${errores > 0 ? `
+            <div style="margin-top:16px;padding:12px 16px;background:#FFF1F0;border-radius:10px;border:1px solid #FFD6D2;">
+              <strong style="color:#FF3B30;font-size:13px;">Transferencias con error (${errores}):</strong>
+              ${resultados.filter(r => !r.ok).map(r => `<div style="font-size:12px;color:#64748b;margin-top:6px;">
+                ${safeText(r.nombre)} · CUIT: ${r.cuit} · $${formatMoneyAR(r.monto)} — ${safeText(r.error)}
+              </div>`).join("")}
+            </div>` : ""}
+          <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:24px;">
+            Fecha de procesamiento: ${fecha} · Mercado Limpio Distribuidora
+          </p>
+        </div>
+      </div>`;
+
+    try {
+      if (!resendClient) throw new Error("Resend no configurado");
+      await resendClient.emails.send({
+        from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+        to: emailReporte,
+        reply_to: GMAIL_USER,
+        subject: `📊 Extracto procesado — ${ok_results.length} facturas · $${formatMoneyAR(totalFacturado)}`,
+        html: htmlReporte
+      });
+      console.log(`✅ [Extracto] Email reporte enviado a ${emailReporte}`);
+    } catch (mailErr) {
+      console.error("⚠️ [Extracto] No se pudo enviar email reporte:", mailErr?.message);
+    }
+
+    return res.json({
+      ok: true,
+      totalFacturado,
+      facturasEmitidas: ok_results.length,
+      errores,
+      resultados
+    });
+
+  } catch (err) {
+    console.error("❌ [/facturar-extracto]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al facturar extracto" });
+  }
+});
