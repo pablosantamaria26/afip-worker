@@ -15,6 +15,7 @@ const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
+const XLSX = require("xlsx");
 
 // ================================================================
 // ✅ SUPABASE — persistencia real (sobrevive redeploys de Render)
@@ -2592,78 +2593,108 @@ function buildItemsParaMonto(montoTotal) {
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────
-// Recibe imagen o PDF del extracto bancario, devuelve transferencias
-// entrantes de clientes chinos detectadas con Gemini.
+// Soporta XLSX (parseo directo, sin Gemini) + PDF/imagen (Gemini).
+// Para XLSX de Banco Provincia: extrae fecha, nombre, monto y CUIT
+// directamente desde la columna Descripción sin depender de IA.
 app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, message: "No se recibió archivo" });
-    if (!geminiModel) return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" });
 
-    const filePath = req.file.path;
-    const mimeType = req.file.mimetype;
-    const isPdf = mimeType === "application/pdf" || req.file.originalname?.toLowerCase().endsWith(".pdf");
-
-    const PROMPT_EXTRACTO = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).
-
-Para cada movimiento incluí:
-- fecha: formato YYYY-MM-DD (o null si no se puede determinar)
-- nombre: nombre completo del ordenante/remitente
-- monto: número positivo (sin símbolo $, sin puntos de miles)
-- descripcion: descripción del movimiento
-- cuit: CUIT del remitente si aparece en el texto (null si no está)
-
-Ignorá débitos, retenciones, comisiones y movimientos negativos.
-Devolvé SOLO el JSON, sin markdown, sin texto adicional.
-Formato exacto: {"movimientos":[{"fecha":"YYYY-MM-DD","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+    const filePath    = req.file.path;
+    const mimeType    = req.file.mimetype;
+    const origName    = (req.file.originalname || "").toLowerCase();
+    const isXlsx      = origName.endsWith(".xlsx") || origName.endsWith(".xls") ||
+                        mimeType.includes("spreadsheet") || mimeType.includes("excel");
+    const isPdf       = mimeType === "application/pdf" || origName.endsWith(".pdf");
 
     let movimientos = [];
 
-    if (isPdf) {
-      // PDF: extraer texto con pdf-parse y enviarlo a Gemini
-      const fileBuffer = fs.readFileSync(filePath);
-      let textoPdf = "";
-      try {
-        const parsed = await pdfParse(fileBuffer);
-        textoPdf = parsed.text || "";
-      } catch (e) {
-        console.warn("⚠️ [Extracto] pdf-parse falló, intentando como imagen:", e?.message);
+    if (isXlsx) {
+      // ── Parseo directo XLSX (Banco Provincia y similares) ────────
+      // Formato: Fecha | Sucursal | Descripción | Referencia | Caja de Ahorro | CC | Saldo
+      // CUIT siempre al final de Descripción: "De [nombre] / ... /[CUIT]"
+      const wb   = XLSX.readFile(filePath);
+      const sh   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
+
+      // Encontrar la fila de encabezado (contiene "Fecha" y "Descripción")
+      let dataStart = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes("fecha")) && row.some(c => c.includes("descripci"))) {
+          dataStart = i + 1;
+          break;
+        }
       }
 
-      if (textoPdf.trim().length > 50) {
-        const result = await geminiModel.generateContent(`${PROMPT_EXTRACTO}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
-        const raw = result.response.text().trim();
-        const json = raw.replace(/```json|```/gi, "").trim();
-        const parsed = JSON.parse(json);
-        movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
-      } else {
-        // PDF escaneado — tratar como imagen
-        const b64 = fs.readFileSync(filePath).toString("base64");
-        const result = await geminiModel.generateContent([
-          PROMPT_EXTRACTO,
-          { inlineData: { data: b64, mimeType: "application/pdf" } }
-        ]);
-        const raw = result.response.text().trim();
-        const json = raw.replace(/```json|```/gi, "").trim();
-        const parsed = JSON.parse(json);
-        movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+      for (let i = dataStart; i < rows.length; i++) {
+        const r    = rows[i];
+        const desc = String(r[3] || "");
+        // Solo transferencias recibidas con monto positivo
+        const descLow = desc.toLowerCase();
+        if (!descLow.includes("transf") || !descLow.includes("recibid")) continue;
+
+        // Monto: columna Caja de Ahorro (idx 5), puede ser string con coma decimal
+        const montoRaw = String(r[5] || "0").replace(/\./g, "").replace(",", ".");
+        const monto    = parseFloat(montoRaw);
+        if (!monto || monto <= 0) continue;
+
+        // Fecha: columna 1, formato DD/MM/YYYY → YYYY-MM-DD
+        const fechaRaw = String(r[1] || "");
+        let fecha = "";
+        const fm = fechaRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (fm) fecha = `${fm[3]}-${fm[2]}-${fm[1]}`;
+
+        // Nombre: después de "De " hasta el primer " /"
+        let nombre = "";
+        const nm = desc.match(/\bde\s+(.+?)\s*\//i);
+        if (nm) nombre = nm[1].trim().replace(/\s+/g, " ");
+
+        // CUIT: último token de solo dígitos al final de la descripción
+        let cuit = null;
+        const cm = desc.match(/\/\s*(\d{10,11})\s*$/);
+        if (cm) cuit = cm[1];
+
+        movimientos.push({ fecha, nombre, monto, descripcion: desc, cuit });
       }
+
+      console.log(`✅ [Extracto XLSX] Movimientos entrantes: ${movimientos.length}`);
+
+    } else if (isPdf) {
+      // ── PDF: extraer texto → Gemini ──────────────────────────────
+      if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
+      const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+
+      const fileBuffer = fs.readFileSync(filePath);
+      let textoPdf = "";
+      try { const p = await pdfParse(fileBuffer); textoPdf = p.text || ""; } catch {}
+
+      let result;
+      if (textoPdf.trim().length > 50) {
+        result = await geminiModel.generateContent(`${PROMPT}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
+      } else {
+        const b64 = fileBuffer.toString("base64");
+        result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType: "application/pdf" } }]);
+      }
+      const raw    = result.response.text().trim().replace(/```json|```/gi, "").trim();
+      const parsed = JSON.parse(raw);
+      movimientos  = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+
     } else {
-      // Imagen (JPG, PNG, WEBP)
-      const b64 = fs.readFileSync(filePath).toString("base64");
-      const result = await geminiModel.generateContent([
-        PROMPT_EXTRACTO,
-        { inlineData: { data: b64, mimeType: mimeType } }
-      ]);
-      const raw = result.response.text().trim();
-      const json = raw.replace(/```json|```/gi, "").trim();
-      const parsed = JSON.parse(json);
-      movimientos = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+      // ── Imagen (JPG, PNG, WEBP) → Gemini ────────────────────────
+      if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
+      const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO.\n\nPara cada movimiento:\n- fecha: YYYY-MM-DD\n- nombre: nombre del remitente\n- monto: número positivo\n- descripcion: descripción\n- cuit: CUIT si aparece (null si no)\n\nIgnorá débitos. JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+      const b64    = fs.readFileSync(filePath).toString("base64");
+      const result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType } }]);
+      const raw    = result.response.text().trim().replace(/```json|```/gi, "").trim();
+      const parsed = JSON.parse(raw);
+      movimientos  = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
     }
 
     // Limpiar archivo temporal
     try { fs.unlinkSync(filePath); } catch {}
 
-    // Filtrar solo transferencias de clientes chinos
+    // Normalizar y filtrar chinos
     const todas = movimientos.map(m => ({
       fecha:       String(m.fecha || ""),
       nombre:      String(m.nombre || ""),
@@ -2675,7 +2706,7 @@ Formato exacto: {"movimientos":[{"fecha":"YYYY-MM-DD","nombre":"...","monto":0,"
 
     const chinos = todas.filter(m => m.esChino);
 
-    console.log(`✅ [Extracto] Total movimientos: ${todas.length} | Clientes chinos: ${chinos.length}`);
+    console.log(`✅ [Extracto] Total: ${todas.length} | Clientes chinos: ${chinos.length}`);
 
     return res.json({
       ok: true,
