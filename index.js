@@ -1,5 +1,6 @@
 "use strict";
 require("dotenv").config();
+const cron = require("node-cron");
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
 const Resend = require("resend").Resend;
@@ -1445,6 +1446,401 @@ app.post("/facturar", async (req, res) => {
       res.status(500).json({ message: err.message, detail: err?.data || null });
     }
     console.error("❌ [/facturar]", err?.message || err);
+  }
+});
+
+// ================================================================
+// 📅 REPORTE MENSUAL AUTOMÁTICO — se ejecuta el 1° de cada mes
+// ================================================================
+async function generarYEnviarReporteMensual() {
+  if (!supabase) {
+    console.error("❌ [Reporte Mensual] Sin conexión a Supabase");
+    return;
+  }
+  if (!resendClient) {
+    console.error("❌ [Reporte Mensual] Sin Resend configurado");
+    return;
+  }
+
+  const emailDestino = process.env.ANALYTICS_REPORT_EMAIL || "santamariapablodaniel@gmail.com";
+  const ahora = new Date();
+
+  // Calculamos el mes anterior (el que acaba de terminar)
+  const mesAnterior   = ahora.getMonth() === 0 ? 12 : ahora.getMonth();
+  const anioAnterior  = ahora.getMonth() === 0 ? ahora.getFullYear() - 1 : ahora.getFullYear();
+  const inicioPrevMes = new Date(anioAnterior, mesAnterior - 1, 1).toISOString();
+  const finPrevMes    = new Date(ahora.getFullYear(), ahora.getMonth(), 1).toISOString();
+
+  // Mes anterior al anterior (para comparar)
+  const mes2Anterior  = mesAnterior === 1 ? 12 : mesAnterior - 1;
+  const anio2Anterior = mesAnterior === 1 ? anioAnterior - 1 : anioAnterior;
+  const inicioMes2    = new Date(anio2Anterior, mes2Anterior - 1, 1).toISOString();
+
+  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const nombreMes = MESES[mesAnterior - 1];
+
+  try {
+    console.log(`📊 [Reporte Mensual] Generando reporte de ${nombreMes} ${anioAnterior}...`);
+
+    // Pedidos del mes anterior
+    const { data: pedidosMes } = await supabase
+      .from("pedidos")
+      .select("id, estado, vendedor, created_at")
+      .gte("created_at", inicioPrevMes)
+      .lt("created_at", finPrevMes);
+
+    // Pedidos del mes previo (para comparar)
+    const { data: pedidosMes2 } = await supabase
+      .from("pedidos")
+      .select("id, estado, vendedor")
+      .gte("created_at", inicioMes2)
+      .lt("created_at", inicioPrevMes);
+
+    // Faltantes del mes anterior
+    const idsPedidosMes = (pedidosMes || []).map(p => p.id);
+    let faltantesMes = [];
+    if (idsPedidosMes.length) {
+      const { data: faltData } = await supabase
+        .from("items_pedido")
+        .select("descripcion, pedido_id")
+        .eq("es_faltante", true)
+        .in("pedido_id", idsPedidosMes.slice(0, 400)); // límite seguro
+      faltantesMes = faltData || [];
+    }
+
+    const totalPed  = (pedidosMes  || []).length;
+    const totalPed2 = (pedidosMes2 || []).length;
+    const totalFact = (pedidosMes  || []).filter(p => p.estado === "facturado").length;
+    const totalFalt = faltantesMes.length;
+    const difPed    = totalPed - totalPed2;
+    const tasaFact  = totalPed > 0 ? Math.round((totalFact / totalPed) * 100) : 0;
+
+    // Top faltantes
+    const faltCounts = {};
+    faltantesMes.forEach(i => {
+      const k = (i.descripcion || "").trim().toLowerCase();
+      if (k) faltCounts[k] = (faltCounts[k] || 0) + 1;
+    });
+    const topFalt = Object.entries(faltCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    // Por vendedor
+    const porVend = {};
+    (pedidosMes || []).forEach(p => {
+      const v = (p.vendedor || "Sin asignar").trim();
+      if (!porVend[v]) porVend[v] = { pedidos: 0, facturados: 0 };
+      porVend[v].pedidos++;
+      if (p.estado === "facturado") porVend[v].facturados++;
+    });
+    const vendedoresRanking = Object.entries(porVend)
+      .sort((a, b) => b[1].pedidos - a[1].pedidos);
+
+    // Veredicto ventas
+    const medallas = ["🥇", "🥈", "🥉"];
+    const vVentas = difPed > 0
+      ? `✅ Vendiste MÁS que en ${MESES[mes2Anterior - 1]} (${difPed} pedidos más)`
+      : difPed < 0
+        ? `⚠️ Vendiste MENOS que en ${MESES[mes2Anterior - 1]} (${Math.abs(difPed)} pedidos menos)`
+        : `➡️ Igual que en ${MESES[mes2Anterior - 1]}`;
+
+    const vendFilas = vendedoresRanking.map(([nombre, d], i) => {
+      const tasaV = d.pedidos > 0 ? Math.round((d.facturados / d.pedidos) * 100) : 0;
+      return `
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 12px;font-weight:700;color:#0f172a">${medallas[i] ?? (i + 1) + "°"} ${nombre}</td>
+          <td style="padding:10px 12px;text-align:center;font-weight:800;font-size:15px">${d.pedidos}</td>
+          <td style="padding:10px 12px;text-align:center;color:#64748b">${d.facturados} (${tasaV}%)</td>
+        </tr>`;
+    }).join("");
+
+    const faltFilas = topFalt.map(([desc, n], i) => `
+      <tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:8px 12px;color:#64748b">${i + 1}</td>
+        <td style="padding:8px 12px;color:#0f172a;font-weight:500">${desc.slice(0, 55)}</td>
+        <td style="padding:8px 12px;font-weight:700;color:#ef4444">${n}x</td>
+      </tr>`).join("");
+
+    const htmlEmail = `
+      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;max-width:600px;margin:20px auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+
+        <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:32px;text-align:center">
+          <div style="font-size:40px;margin-bottom:8px">📊</div>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:900">Reporte de ${nombreMes} ${anioAnterior}</h1>
+          <p style="color:rgba(255,255,255,.75);margin:6px 0 0;font-size:13px">Mercado Limpio · Resumen mensual automático</p>
+        </div>
+
+        <div style="padding:28px">
+
+          <!-- RESUMEN EJECUTIVO -->
+          <div style="background:#f8fafc;border-radius:10px;padding:20px;margin-bottom:24px;border-left:4px solid #6366f1">
+            <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Resumen del mes</div>
+            <div style="font-size:15px;color:#0f172a;line-height:1.7">
+              <div>📦 <strong>${totalPed} pedidos</strong> recibidos en ${nombreMes}</div>
+              <div>✅ <strong>${totalFact} facturados</strong> (${tasaFact}% del total)</div>
+              <div>⚠️ <strong>${totalFalt} artículos faltantes</strong> en el mes</div>
+              <div style="margin-top:10px;font-size:14px;color:${difPed >= 0 ? '#16a34a' : '#dc2626'};font-weight:700">${vVentas}</div>
+            </div>
+          </div>
+
+          <!-- VENDEDORES -->
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Ranking de vendedores</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Vendedor</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Pedidos</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Facturados</th>
+              </tr>
+            </thead>
+            <tbody>${vendFilas || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#94a3b8'>Sin datos</td></tr>"}</tbody>
+          </table>
+
+          <!-- FALTANTES -->
+          ${topFalt.length ? `
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Artículos que más faltaron</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px">#</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Artículo</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Veces</th>
+              </tr>
+            </thead>
+            <tbody>${faltFilas}</tbody>
+          </table>` : ""}
+
+          <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:16px">
+            Este reporte fue generado automáticamente el 1° de ${MESES[ahora.getMonth()]} · Mercado Limpio
+          </p>
+        </div>
+      </div>`;
+
+    await resendClient.emails.send({
+      from: `"Mercado Limpio" <ventas@mercadolimpio.ar>`,
+      to: emailDestino,
+      reply_to: GMAIL_USER,
+      subject: `📊 Resumen de ${nombreMes} ${anioAnterior} — Mercado Limpio`,
+      html: htmlEmail
+    });
+
+    console.log(`✅ [Reporte Mensual] Enviado a ${emailDestino} — ${totalPed} pedidos, ${totalFalt} faltantes`);
+  } catch (err) {
+    console.error("❌ [Reporte Mensual] Error:", err?.message || err);
+  }
+}
+
+// Cron: todos los días a las 8:00 AM Argentina (UTC-3 = 11:00 UTC)
+// Solo ejecuta la lógica si es el 1° del mes
+cron.schedule("0 11 * * *", () => {
+  const hoy = new Date();
+  if (hoy.getDate() === 1) {
+    console.log("📅 [Cron] Hoy es 1° del mes — generando reporte mensual...");
+    generarYEnviarReporteMensual();
+  }
+}, { timezone: "UTC" });
+
+// Endpoint para disparar el reporte manualmente (para testear)
+app.get("/reporte-mensual-manual", async (req, res) => {
+  try {
+    await generarYEnviarReporteMensual();
+    res.json({ ok: true, mensaje: "Reporte mensual enviado" });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err?.message });
+  }
+});
+
+// ================================================================
+// 📊 REPORTE ANALÍTICO POR EMAIL
+// ================================================================
+app.post("/enviar-reporte-analitica", async (req, res) => {
+  try {
+    const {
+      periodo = "semana",
+      comparativa_semana = {},
+      comparativa_mes = {},
+      proyeccion_semanal = [],
+      vendedores = [],
+      top_faltantes = [],
+      fecha = new Date().toLocaleDateString("es-AR")
+    } = req.body || {};
+
+    const emailDestino = process.env.ANALYTICS_REPORT_EMAIL || "santamariapablodaniel@gmail.com";
+
+    const cs = comparativa_semana;
+    const cm = comparativa_mes;
+
+    function varBadge(val, invert = false) {
+      if (val === null || val === undefined) return "";
+      const sign = val > 0 ? "+" : "";
+      const color = invert
+        ? (val > 0 ? "#ef4444" : val < 0 ? "#22c55e" : "#94a3b8")
+        : (val > 0 ? "#22c55e" : val < 0 ? "#ef4444" : "#94a3b8");
+      const arrow = val > 0 ? "↑" : val < 0 ? "↓" : "→";
+      return `<span style="color:${color};font-weight:700;margin-left:6px">${arrow} ${sign}${val}%</span>`;
+    }
+
+    function metricRow(label, actual, anterior, varPct, invert = false) {
+      return `
+        <tr style="border-bottom:1px solid #e2e8f0">
+          <td style="padding:10px 12px;color:#475569;font-size:13px">${label}</td>
+          <td style="padding:10px 12px;font-weight:800;font-size:16px;color:#0f172a">${actual}</td>
+          <td style="padding:10px 12px;color:#64748b;font-size:13px">${anterior} ${varBadge(varPct, invert)}</td>
+        </tr>`;
+    }
+
+    const tasaSemActual  = cs.items_actual  > 0 ? Math.round((cs.faltantes_actual  / cs.items_actual)  * 100) : 0;
+    const tasaSemAnterior= cs.items_anterior > 0 ? Math.round((cs.faltantes_anterior / cs.items_anterior) * 100) : 0;
+    const tasaMesActual  = cm.items_actual  > 0 ? Math.round((cm.faltantes_actual  / cm.items_actual)  * 100) : 0;
+    const tasaMesAnterior= cm.items_anterior > 0 ? Math.round((cm.faltantes_anterior / cm.items_anterior) * 100) : 0;
+    const varTasaSem = tasaSemAnterior > 0 ? +(((tasaSemActual - tasaSemAnterior)/tasaSemAnterior)*100).toFixed(1) : null;
+    const varTasMes  = tasaMesAnterior > 0 ? +(((tasaMesActual  - tasaMesAnterior) /tasaMesAnterior) *100).toFixed(1) : null;
+
+    // Proyección
+    let proyTitle = "Sin datos de proyección";
+    if (proyeccion_semanal.length >= 2) {
+      const rec = proyeccion_semanal.slice(-3);
+      const avgRec = rec.reduce((s, r) => s + r.pedidos, 0) / rec.length;
+      const hoy = new Date();
+      const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+      const diasRestantes = diasEnMes - hoy.getDate();
+      const tasaDiaria = avgRec / 5;
+      const pedidosMes = cm.pedidos_actual || 0;
+      const proy = Math.round(pedidosMes + tasaDiaria * diasRestantes);
+      proyTitle = `Proyección fin de mes: <strong>${proy} pedidos</strong> (quedan ${diasRestantes} días)`;
+    }
+
+    // Top faltantes rows
+    const faltantesRows = top_faltantes.map(([desc, n], i) =>
+      `<tr style="border-bottom:1px solid #f1f5f9">
+         <td style="padding:8px 12px;color:#64748b;font-size:12px">${i+1}</td>
+         <td style="padding:8px 12px;color:#0f172a;font-size:13px;font-weight:500">${String(desc).slice(0,50)}</td>
+         <td style="padding:8px 12px;font-weight:700;color:#ef4444;font-size:13px">${n}x</td>
+       </tr>`
+    ).join("");
+
+    // Vendedores rows
+    const vendedoresRows = vendedores.slice(0, 6).map(v =>
+      `<tr style="border-bottom:1px solid #f1f5f9">
+         <td style="padding:8px 12px;font-weight:600;color:#0f172a;font-size:13px">${String(v.vendedor || "—")}</td>
+         <td style="padding:8px 12px;text-align:center;font-weight:700;font-size:14px">${v.pedidos_semana_actual}</td>
+         <td style="padding:8px 12px;text-align:center;color:#64748b;font-size:13px">${v.pedidos_semana_anterior}</td>
+         <td style="padding:8px 12px;text-align:center;font-weight:700;font-size:14px">${v.pedidos_mes_actual}</td>
+         <td style="padding:8px 12px;text-align:center;font-weight:700;color:#ef4444;font-size:13px">${v.faltantes_semana}</td>
+       </tr>`
+    ).join("");
+
+    const htmlReporte = `
+      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;max-width:640px;margin:20px auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">
+
+        <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:32px;text-align:center">
+          <div style="font-size:36px;margin-bottom:8px">📊</div>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:900">Reporte Analítico</h1>
+          <p style="color:rgba(255,255,255,.75);margin:6px 0 0;font-size:13px">Mercado Limpio · ${fecha}</p>
+        </div>
+
+        <div style="padding:28px">
+
+          <p style="color:#475569;font-size:14px;margin:0 0 20px">
+            Resumen ejecutivo de ventas, faltantes y proyección del negocio.
+          </p>
+
+          <!-- PROYECCIÓN -->
+          <div style="background:#0f172a;border-radius:10px;padding:18px 20px;margin-bottom:24px">
+            <div style="font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Proyección</div>
+            <p style="color:#fff;font-size:15px;margin:0">${proyTitle}</p>
+          </div>
+
+          <!-- SEMANA ACTUAL VS ANTERIOR -->
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Semana actual vs anterior</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px;font-size:13px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Métrica</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Esta sem.</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Sem. ant.</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${metricRow("Pedidos",    cs.pedidos_actual   ?? "—", cs.pedidos_anterior   ?? "—", cs.var_pedidos_pct)}
+              ${metricRow("Facturados", cs.facturados_actual ?? "—", cs.facturados_anterior ?? "—", cs.var_facturados_pct)}
+              ${metricRow("Faltantes",  cs.faltantes_actual  ?? "—", cs.faltantes_anterior  ?? "—", cs.var_faltantes_pct,  true)}
+              ${metricRow("Tasa falt.", `${tasaSemActual}%`, `${tasaSemAnterior}%`, varTasaSem, true)}
+            </tbody>
+          </table>
+
+          <!-- MES ACTUAL VS ANTERIOR -->
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Mes actual vs anterior</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px;font-size:13px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Métrica</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Este mes</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Mes ant.</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${metricRow("Pedidos",    cm.pedidos_actual   ?? "—", cm.pedidos_anterior   ?? "—", cm.var_pedidos_pct)}
+              ${metricRow("Facturados", cm.facturados_actual ?? "—", cm.facturados_anterior ?? "—", cm.var_facturados_pct)}
+              ${metricRow("Faltantes",  cm.faltantes_actual  ?? "—", cm.faltantes_anterior  ?? "—", cm.var_faltantes_pct,  true)}
+              ${metricRow("Tasa falt.", `${tasaMesActual}%`, `${tasaMesAnterior}%`, varTasMes, true)}
+            </tbody>
+          </table>
+
+          <!-- RENDIMIENTO VENDEDORES -->
+          ${vendedoresRows ? `
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Rendimiento vendedores</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px;font-size:13px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Vendedor</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Sem.</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Sem. ant.</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Mes</th>
+                <th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px;text-transform:uppercase">Faltantes</th>
+              </tr>
+            </thead>
+            <tbody>${vendedoresRows}</tbody>
+          </table>` : ""}
+
+          <!-- TOP FALTANTES -->
+          ${faltantesRows ? `
+          <h3 style="font-size:14px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px">Top artículos faltantes (30 días)</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px;font-size:13px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px">#</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Artículo</th>
+                <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase">Veces</th>
+              </tr>
+            </thead>
+            <tbody>${faltantesRows}</tbody>
+          </table>` : ""}
+
+          <p style="font-size:13px;color:#64748b;text-align:center;background:#f8fafc;padding:12px;border-radius:8px;margin-top:8px">
+            Reporte generado automáticamente desde Analytics · Mercado Limpio
+          </p>
+        </div>
+
+        <div style="background:#f1f5f9;padding:16px;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">
+          <p style="margin:0">Mercado Limpio · Buenos Aires, Argentina</p>
+        </div>
+      </div>`;
+
+    if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY");
+
+    await resendClient.emails.send({
+      from: `"Mercado Limpio Analytics" <ventas@mercadolimpio.ar>`,
+      to: emailDestino,
+      reply_to: GMAIL_USER,
+      subject: `📊 Reporte Analítico — ${fecha}`,
+      html: htmlReporte
+    });
+
+    console.log(`✅ [Analytics] Reporte enviado a ${emailDestino}`);
+    return res.json({ ok: true, enviado_a: emailDestino });
+
+  } catch (err) {
+    console.error("❌ [/enviar-reporte-analitica]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al enviar reporte" });
   }
 });
 
