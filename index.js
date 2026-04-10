@@ -1073,6 +1073,9 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
       }))
     });
 
+    // 👇 AGREGA ESTA LÍNEA ACÁ 👇
+    console.log(`✅ [Email] ¡Enviado con éxito a ${emailAEnviar}!`);
+
     for (const p of mailParts) {
       await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
     }
