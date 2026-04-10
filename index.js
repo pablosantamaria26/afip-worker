@@ -39,7 +39,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-03-SUPABASE-PERSIST.GEMINI-MOTOR-DOBLE-SMART.EMAIL-SYNC";
+const APP_VERSION = "2026-04-REENVIO-EMAIL.RESEND-ERROR-CHECK";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -1061,7 +1061,7 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
     // --- LÓGICA DE ENVÍO ---
     if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
     console.log("🚀 Enviando por Resend API...");
-    await resendClient.emails.send({
+    const { data: resendData, error: resendError } = await resendClient.emails.send({
       from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
       to: emailAEnviar,
       reply_to: GMAIL_USER,
@@ -1072,6 +1072,9 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
         content: at.content
       }))
     });
+
+    if (resendError) throw new Error(`Resend error: ${resendError.message || JSON.stringify(resendError)}`);
+    console.log(`✅ [Email] Enviado a ${emailAEnviar} | id=${resendData?.id}`);
 
     for (const p of mailParts) {
       await actualizarEstadoEmail(p.comprobante, "sent", "", emailAEnviar);
@@ -1614,13 +1617,14 @@ async function generarYEnviarReporteMensual() {
         </div>
       </div>`;
 
-    await resendClient.emails.send({
+    const { error: repError } = await resendClient.emails.send({
       from: `"Mercado Limpio" <ventas@mercadolimpio.ar>`,
       to: emailDestino,
       reply_to: GMAIL_USER,
       subject: `📊 Resumen de ${nombreMes} ${anioAnterior} — Mercado Limpio`,
       html: htmlEmail
     });
+    if (repError) throw new Error(`Resend error: ${repError.message || JSON.stringify(repError)}`);
 
     console.log(`✅ [Reporte Mensual] Enviado a ${emailDestino} — ${totalPed} pedidos, ${totalFalt} faltantes`);
   } catch (err) {
@@ -1827,13 +1831,14 @@ app.post("/enviar-reporte-analitica", async (req, res) => {
 
     if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY");
 
-    await resendClient.emails.send({
+    const { error: analyticsError } = await resendClient.emails.send({
       from: `"Mercado Limpio Analytics" <ventas@mercadolimpio.ar>`,
       to: emailDestino,
       reply_to: GMAIL_USER,
       subject: `📊 Reporte Analítico — ${fecha}`,
       html: htmlReporte
     });
+    if (analyticsError) throw new Error(`Resend error: ${analyticsError.message || JSON.stringify(analyticsError)}`);
 
     console.log(`✅ [Analytics] Reporte enviado a ${emailDestino}`);
     return res.json({ ok: true, enviado_a: emailDestino });
@@ -2046,6 +2051,8 @@ app.get("/admin/facturas-mes", async (req, res) => {
         nombre: String(f.nombreCliente || f.nombre_cliente || ""),
         total: Number(f.total || 0),
         pdfUrl: String(f.pdfUrl || f.pdf_url || ""),
+        emailTo: String(f.email_to || ""),
+        emailStatus: String(f.email_status || ""),
         anulado
       };
     });
@@ -2066,6 +2073,113 @@ app.get("/admin/facturas-mes", async (req, res) => {
       ok: false,
       message: err?.message || "Error al leer facturas del mes"
     });
+  }
+});
+
+// ================================================================
+// ✅ REENVIAR EMAIL DE FACTURA
+// ================================================================
+app.post("/reenviar-email", async (req, res) => {
+  try {
+    const comprobante = String(req.body.comprobante || "").trim();
+    const emailDestino = String(req.body.emailDestino || "").trim();
+
+    if (!comprobante) return res.status(400).json({ ok: false, message: "Falta comprobante" });
+    if (!emailDestino) return res.status(400).json({ ok: false, message: "Falta email de destino" });
+    if (!resendClient) return res.status(500).json({ ok: false, message: "Resend no configurado — revisar RESEND_API_KEY" });
+
+    // Buscar la factura en Supabase
+    if (!supabase) return res.status(500).json({ ok: false, message: "Supabase no configurado" });
+    const { data: rows, error: dbErr } = await supabase
+      .from("facturas")
+      .select("*")
+      .eq("comprobante", comprobante)
+      .limit(1);
+
+    if (dbErr) throw new Error(dbErr.message);
+    if (!rows || rows.length === 0) return res.status(404).json({ ok: false, message: `Comprobante ${comprobante} no encontrado` });
+
+    const f = rows[0];
+    const pdfUrl = String(f.pdfUrl || f.pdf_url || "");
+    const nombre = String(f.nombreCliente || f.nombre_cliente || "Cliente");
+    const cuit = String(f.cuitCliente || f.cuit_cliente || "");
+    const totalNum = Number(f.total || 0);
+    const cae = String(f.cae || "");
+
+    // Descargar el PDF
+    let pdfBuffer = null;
+    if (pdfUrl) {
+      try {
+        const pdfResp = await fetch(pdfUrl);
+        if (pdfResp.ok) {
+          const arrayBuf = await pdfResp.arrayBuffer();
+          pdfBuffer = Buffer.from(arrayBuf);
+          console.log(`✅ [Reenvio] PDF descargado | bytes=${pdfBuffer.length}`);
+        } else {
+          console.warn(`⚠️ [Reenvio] PDF no disponible (${pdfResp.status})`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ [Reenvio] Error descargando PDF:`, e?.message);
+      }
+    }
+
+    // Construir email HTML
+    const subject = `Factura ${comprobante} - ${EMISOR.nombreVisible} (reenvío)`;
+    const mailHtml = `
+      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;max-width:600px;margin:20px auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
+        <div style="background-color:#0f172a;padding:30px;text-align:center;">
+          <h1 style="color:#ffffff;margin:0;font-size:24px;letter-spacing:1px;font-weight:900;">${safeText(EMISOR.nombreVisible)}</h1>
+          <p style="color:#94a3b8;margin:5px 0 0 0;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">Comprobante Electrónico · Reenvío</p>
+        </div>
+        <div style="padding:30px;">
+          <p style="font-size:15px;line-height:1.6;color:#334155;margin-top:0;">Estimado/a <strong>${safeText(nombre)}</strong>,</p>
+          <p style="font-size:15px;line-height:1.6;color:#334155;">Le reenviamos el comprobante oficial correspondiente a su última operación.</p>
+          <div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:25px 0;border-left:4px solid #3b82f6;">
+            <h3 style="margin:0 0 10px 0;font-size:14px;color:#0f172a;text-transform:uppercase;">Datos del Comprobante</h3>
+            <div style="font-size:13px;color:#475569;line-height:1.8;">
+              <div><strong>Comprobante:</strong> ${safeText(comprobante)}</div>
+              <div><strong>CUIT:</strong> ${safeText(cuit)}</div>
+              <div><strong>CAE:</strong> ${safeText(cae)}</div>
+              <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1;font-size:15px;color:#0f172a;font-weight:bold;">
+                Total: $ ${formatMoneyAR(totalNum)}
+              </div>
+            </div>
+          </div>
+          <p style="font-size:14px;color:#64748b;line-height:1.6;background:#f1f5f9;padding:12px;border-radius:6px;text-align:center;margin-top:25px;">
+            📎 <strong>Importante:</strong> Adjunto a este correo encontrará el archivo PDF oficial autorizado por ARCA/AFIP.
+          </p>
+          <p style="font-size:15px;line-height:1.6;color:#334155;margin-top:30px;">Atentamente,<br><strong>Administración Mercado Limpio</strong></p>
+        </div>
+        <div style="background-color:#f1f5f9;padding:20px;text-align:center;font-size:11px;color:#64748b;border-top:1px solid #e2e8f0;">
+          <p style="margin:0;">Este es un reenvío automático desde el sistema de facturación.</p>
+          <p style="margin:5px 0 0 0;">Buenos Aires, Argentina</p>
+        </div>
+      </div>`;
+
+    const attachments = pdfBuffer ? [{
+      filename: `${comprobante.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`,
+      content: pdfBuffer
+    }] : [];
+
+    console.log(`🚀 [Reenvio] Enviando ${comprobante} a ${emailDestino}...`);
+    const { data: sendData, error: sendError } = await resendClient.emails.send({
+      from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+      to: emailDestino,
+      reply_to: GMAIL_USER,
+      subject,
+      html: mailHtml,
+      attachments
+    });
+
+    if (sendError) throw new Error(`Resend error: ${sendError.message || JSON.stringify(sendError)}`);
+    console.log(`✅ [Reenvio] Email enviado a ${emailDestino} | id=${sendData?.id}`);
+
+    await actualizarEstadoEmail(comprobante, "sent", "", emailDestino);
+
+    return res.json({ ok: true, message: `Email reenviado a ${emailDestino}` });
+  } catch (err) {
+    console.error("❌ [/reenviar-email]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al reenviar email" });
   }
 });
 
@@ -2170,7 +2284,8 @@ async function enviarResumenMensual(anioForzar, mesForzar) {
   const subject  = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
   const toAddress = process.env.RESEND_API_KEY ? "santamariapablodaniel@gmail.com" : "distribuidoramercadolimpio@gmail.com";
   if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
-  await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
+  const { error: resumenError } = await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
+  if (resumenError) throw new Error(`Resend error: ${resumenError.message || JSON.stringify(resumenError)}`);
   console.log(`✅ [Resumen] Enviado vía Resend a ${toAddress}`);
 }
 
@@ -2760,7 +2875,7 @@ app.post("/anular-comprobante", async (req, res) => {
 
         if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
         console.log("🚀 [NC] Enviando vía Resend API...");
-        await resendClient.emails.send({
+        const { data: ncResendData, error: ncResendError } = await resendClient.emails.send({
           from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
           to: emailDestino,
           reply_to: GMAIL_USER,
@@ -2771,9 +2886,10 @@ app.post("/anular-comprobante", async (req, res) => {
             content: pdfBuffer
           }] : []
         });
+        if (ncResendError) throw new Error(`Resend error: ${ncResendError.message || JSON.stringify(ncResendError)}`);
         ncEmailSent = true;
         await actualizarEstadoEmail(ncComprobante, "sent", "", emailDestino);
-        console.log(`✅ [NC] Email enviado a ${emailDestino}`);
+        console.log(`✅ [NC] Email enviado a ${emailDestino} | id=${ncResendData?.id}`);
       } catch (mailErr) {
         await actualizarEstadoEmail(ncComprobante, "failed", mailErr?.message, emailDestino);
         console.error("⚠️ [NC] Falló envío de mail:", mailErr?.message);
@@ -3289,13 +3405,14 @@ app.post("/facturar-extracto", async (req, res) => {
 
     try {
       if (!resendClient) throw new Error("Resend no configurado");
-      await resendClient.emails.send({
+      const { error: extractoError } = await resendClient.emails.send({
         from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
         to: emailReporte,
         reply_to: GMAIL_USER,
         subject: `📊 Extracto procesado — ${ok_results.length} facturas · $${formatMoneyAR(totalFacturado)}`,
         html: htmlReporte
       });
+      if (extractoError) throw new Error(`Resend error: ${extractoError.message || JSON.stringify(extractoError)}`);
       console.log(`✅ [Extracto] Email reporte enviado a ${emailReporte}`);
     } catch (mailErr) {
       console.error("⚠️ [Extracto] No se pudo enviar email reporte:", mailErr?.message);
