@@ -3104,6 +3104,65 @@ function buildItemsParaMonto(montoTotal) {
   return all;
 }
 
+// ── Parseo directo de PDF Santander (sin Gemini) ─────────────────
+// Extrae transferencias recibidas del texto plano del PDF exportado
+// desde la app Santander. CUIT: todo después del último '/', sin dígitos.
+function parseSantanderPdfText(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const movimientos = [];
+  let currentFecha = "";
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Rastrear fecha actual: DD/MM/YY o DD/MM/YYYY al inicio de línea
+    const dateMatch = line.match(/^(\d{2})\/(\d{2})\/(\d{2,4})/);
+    if (dateMatch) {
+      const day = dateMatch[1], mon = dateMatch[2];
+      const yr  = dateMatch[3].length === 2 ? "20" + dateMatch[3] : dateMatch[3];
+      currentFecha = `${yr}-${mon}-${day}`;
+    }
+
+    // Detectar línea de transferencia recibida (no "realizada")
+    const esRecibida = /transf[^a-z]*recibid/i.test(line) && !/realizada/i.test(line);
+    if (!esRecibida) continue;
+
+    // La línea siguiente: "De [nombre] / [medio] /[CUIT con posibles espacios]"
+    const descLine = lines[i + 1] || "";
+    if (!/^\s*de\s+/i.test(descLine)) continue;
+
+    const nombreMatch = descLine.match(/^de\s+(.+?)\s*\//i);
+    if (!nombreMatch) continue;
+    const nombre = nombreMatch[1].trim().replace(/\s+/g, " ");
+
+    // CUIT: todo lo que hay después del ÚLTIMO '/', quitando no-dígitos
+    const lastSlashIdx = descLine.lastIndexOf("/");
+    if (lastSlashIdx < 0) continue;
+    const cuit = descLine.slice(lastSlashIdx + 1).replace(/\D/g, "");
+    if (cuit.length !== 11) continue;
+
+    // Monto: buscar en las 3 líneas siguientes "$ X.XXX,XX" positivo (sin guión previo)
+    let monto = 0;
+    for (let j = i + 2; j <= i + 4 && j < lines.length; j++) {
+      const montoMatch = lines[j].match(/^\$\s*([\d.]+,\d{2})\s*$/);
+      if (montoMatch) {
+        monto = parseFloat(montoMatch[1].replace(/\./g, "").replace(",", "."));
+        break;
+      }
+      // Formato alternativo sin símbolo: número con coma decimal
+      const altMatch = lines[j].match(/^([\d.]+,\d{2})\s*$/);
+      if (altMatch && !lines[j].startsWith("-")) {
+        monto = parseFloat(altMatch[1].replace(/\./g, "").replace(",", "."));
+        break;
+      }
+    }
+    if (!monto || monto <= 0) continue;
+
+    movimientos.push({ fecha: currentFecha, nombre, monto, cuit, descripcion: descLine });
+  }
+  return movimientos;
+}
+
 // ── POST /procesar-extracto ─────────────────────────────────────
 // Soporta XLSX (parseo directo, sin Gemini) + PDF/imagen (Gemini).
 // Para XLSX de Banco Provincia: extrae fecha, nombre, monto y CUIT
@@ -3173,24 +3232,37 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
       console.log(`✅ [Extracto XLSX] Movimientos entrantes: ${movimientos.length}`);
 
     } else if (isPdf) {
-      // ── PDF: extraer texto → Gemini ──────────────────────────────
-      if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
-      const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
-
+      // ── PDF: intento parseo directo (Santander) → fallback Gemini ──
       const fileBuffer = fs.readFileSync(filePath);
       let textoPdf = "";
       try { const p = await pdfParse(fileBuffer); textoPdf = p.text || ""; } catch {}
 
-      let result;
+      // 1° intento: parser estructurado sin tokens
       if (textoPdf.trim().length > 50) {
-        result = await geminiModel.generateContent(`${PROMPT}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
-      } else {
-        const b64 = fileBuffer.toString("base64");
-        result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType: "application/pdf" } }]);
+        const directResult = parseSantanderPdfText(textoPdf);
+        if (directResult.length > 0) {
+          movimientos = directResult;
+          console.log(`✅ [Extracto PDF directo] Movimientos encontrados: ${movimientos.length}`);
+        }
       }
-      const raw    = result.response.text().trim().replace(/```json|```/gi, "").trim();
-      const parsed = JSON.parse(raw);
-      movimientos  = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+
+      // 2° fallback: Gemini (solo si el parser directo no encontró nada)
+      if (movimientos.length === 0) {
+        if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
+        const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+
+        let result;
+        if (textoPdf.trim().length > 50) {
+          result = await geminiModel.generateContent(`${PROMPT}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
+        } else {
+          const b64 = fileBuffer.toString("base64");
+          result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType: "application/pdf" } }]);
+        }
+        const raw    = result.response.text().trim().replace(/```json|```/gi, "").trim();
+        const parsed = JSON.parse(raw);
+        movimientos  = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
+        console.log(`✅ [Extracto PDF Gemini] Movimientos encontrados: ${movimientos.length}`);
+      }
 
     } else {
       // ── Imagen (JPG, PNG, WEBP) → Gemini ────────────────────────
