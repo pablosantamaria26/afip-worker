@@ -236,6 +236,12 @@ setInterval(() => cleanupOldPublicPdfs(), 6 * 60 * 60 * 1000).unref?.();
 
 const upload = multer({ dest: uploadDir, limits: { fileSize: 50 * 1024 * 1024 } });
 
+// Multer en memoria para el mailer de proveedores (no necesita disco)
+const mailerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }
+});
+
 let pvCache = null;
 async function getPtoVentaSeguro() {
   if (pvCache) return pvCache;
@@ -3501,5 +3507,126 @@ app.post("/facturar-extracto", async (req, res) => {
   } catch (err) {
     console.error("❌ [/facturar-extracto]", err?.message || err);
     return res.status(500).json({ ok: false, message: err?.message || "Error al facturar extracto" });
+  }
+});
+
+// ================================================================
+// ✉️  MAILER PROVEEDORES
+// ================================================================
+const MAILER_SECRET      = process.env.MAILER_SECRET || "";
+const MAILER_FROM_EMAIL  = process.env.MAILER_FROM_EMAIL  || "ventas@mercadolimpio.ar";
+const MAILER_FROM_NAME   = process.env.MAILER_FROM_NAME   || "Mercado Limpio";
+const MAILER_REPLY_TO    = process.env.MAILER_REPLY_TO    || GMAIL_USER || "distribuidoramercadolimpio@gmail.com";
+const MAILER_CONTACTS_PATH = "mailer/contacts.json";
+
+// Helpers para persistir contactos en Supabase Storage
+async function loadMailerContacts() {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .download(MAILER_CONTACTS_PATH);
+    if (error || !data) return [];
+    const text = await data.text();
+    return JSON.parse(text);
+  } catch { return []; }
+}
+
+async function saveMailerContacts(contacts) {
+  if (!supabase) return;
+  const blob = new Blob([JSON.stringify(contacts, null, 2)], { type: "application/json" });
+  await supabase.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .upload(MAILER_CONTACTS_PATH, blob, { upsert: true, contentType: "application/json" });
+}
+
+async function addMailerContact(email) {
+  const e = email.trim().toLowerCase();
+  let contacts = await loadMailerContacts();
+  contacts = [e, ...contacts.filter(c => c !== e)].slice(0, 200);
+  await saveMailerContacts(contacts);
+}
+
+// Middleware de autenticación del mailer (X-Mailer-Secret header)
+function mailerAuth(req, res, next) {
+  if (!MAILER_SECRET) return next(); // sin secret configurado = abierto (solo para desarrollo)
+  const header = req.headers["x-mailer-secret"] || "";
+  if (header !== MAILER_SECRET) {
+    return res.status(401).json({ ok: false, error: "No autorizado" });
+  }
+  next();
+}
+
+// GET /mailer/contacts
+app.get("/mailer/contacts", mailerAuth, async (_req, res) => {
+  try {
+    const contacts = await loadMailerContacts();
+    res.json(contacts);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /mailer/send
+app.post("/mailer/send", mailerAuth, mailerUpload.array("archivos", 20), async (req, res) => {
+  try {
+    if (!resendClient) return res.status(500).json({ ok: false, error: "Resend no configurado en el worker" });
+
+    const { to, subject, message } = req.body;
+    if (!to || !subject || !message) {
+      return res.status(400).json({ ok: false, error: "Faltan campos: to, subject, message" });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const destinatarios = to.split(",").map(e => e.trim()).filter(Boolean);
+    for (const email of destinatarios) {
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ ok: false, error: `Email inválido: ${email}` });
+      }
+    }
+
+    const attachments = (req.files || []).map(file => ({
+      filename: file.originalname,
+      content: file.buffer
+    }));
+
+    const htmlBody = `
+      <div style="font-family:Arial,sans-serif;font-size:15px;color:#1e293b;line-height:1.6;max-width:680px">
+        ${message
+          .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+          .replace(/\n/g,"<br>")}
+        <br><br>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+        <p style="font-size:12px;color:#94a3b8;margin:0">
+          ${MAILER_FROM_NAME} · Buenos Aires, Argentina<br>
+          Para responder a este email, usá Responder directamente.
+        </p>
+      </div>`;
+
+    console.log(`📤 [Mailer] → ${destinatarios.join(", ")} | ${subject} | adjuntos: ${attachments.length}`);
+
+    const { data, error } = await resendClient.emails.send({
+      from:        `"${MAILER_FROM_NAME}" <${MAILER_FROM_EMAIL}>`,
+      to:          destinatarios,
+      reply_to:    MAILER_REPLY_TO,
+      subject,
+      html:        htmlBody,
+      attachments
+    });
+
+    if (error) {
+      console.error("❌ [Mailer] Resend error:", error);
+      return res.status(500).json({ ok: false, error: error.message || JSON.stringify(error) });
+    }
+
+    // Guardar contactos de forma asíncrona (no bloquea la respuesta)
+    destinatarios.forEach(e => addMailerContact(e).catch(() => {}));
+
+    console.log(`✅ [Mailer] Enviado | id=${data?.id}`);
+    res.json({ ok: true, id: data?.id });
+
+  } catch (err) {
+    console.error("❌ [Mailer]", err?.message || err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
