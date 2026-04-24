@@ -3211,9 +3211,15 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
         const descLow = desc.toLowerCase();
         if (!descLow.includes("transf") || !descLow.includes("recibid")) continue;
 
-        // Monto: columna Caja de Ahorro (idx 5), puede ser string con coma decimal
-        const montoRaw = String(r[5] || "0").replace(/\./g, "").replace(",", ".");
-        const monto    = parseFloat(montoRaw);
+        // Monto: columna Caja de Ahorro (idx 5)
+        // Santander exporta con punto decimal estilo americano ("146645.00"), sin separador de miles.
+        // Banco Provincia usa formato argentino ("1.234,56") con coma decimal.
+        // → Si tiene coma: formato argentino (quitar puntos, reemplazar coma por punto).
+        // → Si no tiene coma: formato americano, parseFloat directo.
+        const cellVal  = String(r[5] || "0").trim();
+        const monto    = cellVal.includes(",")
+          ? parseFloat(cellVal.replace(/\./g, "").replace(",", "."))
+          : parseFloat(cellVal);
         if (!monto || monto <= 0) continue;
 
         // Fecha: columna 1, formato DD/MM/YYYY → YYYY-MM-DD
