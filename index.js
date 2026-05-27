@@ -3347,11 +3347,36 @@ app.post("/facturar-extracto", async (req, res) => {
       const cuitCliente = onlyDigits(String(t.cuit || ""));
       const monto = Math.abs(Number(t.monto || 0));
       const nombre = String(t.nombre || "Cliente");
+      const fechaTransf = String(t.fecha || fecha); // fecha del extracto (YYYY-MM-DD)
 
       if (cuitCliente.length !== 11 || monto <= 0) {
         resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
         errores++;
         continue;
+      }
+
+      // ── Deduplicación: evitar doble facturación si el mismo extracto
+      //    se envía dos veces o si ya se facturó esta transferencia hoy ──
+      if (supabase) {
+        try {
+          const montoConIva = round2(monto * 1.21); // aprox del total con IVA
+          const { data: dup } = await supabase
+            .from("facturas")
+            .select("comprobante")
+            .eq("cuit_cliente", cuitCliente)
+            .eq("fecha", fechaTransf)
+            .gte("total", montoConIva - 2)
+            .lte("total", montoConIva + 2)
+            .ilike("condicion_venta", "%EXTRACTO%")
+            .limit(1);
+          if (dup && dup.length > 0) {
+            console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
+            resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: monto, pdfUrl: "" });
+            continue;
+          }
+        } catch (dupErr) {
+          console.warn("⚠️ [Extracto] No se pudo verificar duplicado en Supabase:", dupErr?.message);
+        }
       }
 
       try {
@@ -3363,19 +3388,35 @@ app.post("/facturar-extracto", async (req, res) => {
         const impIVA   = round2(impTotal - impNeto);
 
         const rec = await getReceptorDesdePadron(cuitCliente);
-        const nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
 
-        const voucherData = {
-          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
-          DocTipo: 80, DocNro: Number(cuitCliente),
-          CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
-          ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
-          ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
-          MonId: "PES", MonCotiz: 1,
-          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
-        };
-
-        const afipResult = await afip.ElectronicBilling.createVoucher(voucherData);
+        // ── Obtener número de comprobante con retry ante error 10016 ──
+        // AFIP a veces devuelve número desactualizado; si la creación falla
+        // con 10016, se re-consulta el número real y se reintenta (hasta 2x).
+        let nro, afipResult;
+        for (let intento = 0; intento <= 2; intento++) {
+          nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+          const vd = {
+            CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+            DocTipo: 80, DocNro: Number(cuitCliente),
+            CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
+            ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
+            ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
+            MonId: "PES", MonCotiz: 1,
+            Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+          };
+          try {
+            afipResult = await afip.ElectronicBilling.createVoucher(vd);
+            break; // éxito → salir del loop
+          } catch (afipErr) {
+            const msg = String(afipErr?.message || "");
+            if (intento < 2 && msg.includes("10016")) {
+              console.warn(`⚠️ [AFIP] 10016 intento ${intento + 1}/2 para CUIT ${cuitCliente}, reintentando...`);
+              await new Promise(r => setTimeout(r, 800)); // esperar que AFIP actualice el contador
+              continue;
+            }
+            throw afipErr; // re-lanzar si no es 10016 o se agotaron reintentos
+          }
+        }
 
         const qrPayload = {
           ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
