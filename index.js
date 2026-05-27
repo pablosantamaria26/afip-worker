@@ -39,7 +39,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-04-EMAIL-EXTRACTO-TOTALES";
+const APP_VERSION = "2026-05-EXTRACTO-FIX-RETRY-DEDUP";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
