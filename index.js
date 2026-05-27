@@ -2734,9 +2734,11 @@ app.post("/anular-comprobante", async (req, res) => {
       };
       try {
         result = await afip.ElectronicBilling.createVoucher(vd);
+        console.log(`✅ [NC] createVoucher OK | CAE: ${result.CAE} | nro: ${nroNC}`);
         break; // éxito
       } catch (ncErr) {
         const msg = String(ncErr?.message || "");
+        console.error(`❌ [NC] createVoucher falló intento ${intento}: "${msg}"`);
         const es400o10016 = msg.includes("400") || msg.includes("10016");
         if (intento < 2 && es400o10016) {
           console.warn(`⚠️ [AFIP NC] intento ${intento + 1}/2 (${msg.slice(0, 80)}), reintentando...`);
@@ -2746,6 +2748,36 @@ app.post("/anular-comprobante", async (req, res) => {
         throw ncErr;
       }
     }
+
+    // Guardar en DB ANTES del PDF — si el PDF falla la NC queda registrada igual
+    const ncComprobante = buildComprobanteLabelByTipo(cbteTipoNC, pvNc, nroNC);
+    await guardarComprobanteGeneralEnDB({
+      comprobante: ncComprobante,
+      cbteTipo: cbteTipoNC,
+      cuitCliente: original.cuitCliente,
+      nombreCliente: original.nombreCliente,
+      domicilio: original.domicilio || "",
+      nro: nroNC,
+      pv: pvNc,
+      cae: result.CAE,
+      impTotal: -totalOriginal,
+      pdfPublicUrl: "",
+      condicionVenta: `ANULACIÓN / NC ASOCIADA A ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
+      fecha,
+      items: [{
+        descripcion: `Anulación de ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
+        cantidad: 1,
+        precio_con_iva: totalOriginal,
+        subtotal_con_iva: totalOriginal
+      }],
+      emailAEnviar: original.email_to || DEFAULT_EMAIL
+    });
+    await marcarComprobanteComoAnulado(
+      original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura),
+      ncComprobante,
+      result.CAE
+    );
+    console.log(`✅ [NC] Guardada en DB: ${ncComprobante} | CAE: ${result.CAE}`);
 
     const qrPayload = {
       ver: 1,
@@ -2788,66 +2820,29 @@ app.post("/anular-comprobante", async (req, res) => {
       motivo
     });
 
-    const pdfRes = await afip.ElectronicBilling.createPDF({
-      html: htmlNC,
-      file_name: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`,
-      options: {
-        width: 8.27,
-        marginTop: 0.35,
-        marginBottom: 0.35,
-        marginLeft: 0.35,
-        marginRight: 0.35
-      }
-    });
-
-    let pdfBuffer = null;
-    try {
-      pdfBuffer = await downloadToBuffer(pdfRes.file);
-    } catch (e) {
-      console.error("⚠️ [NC] No pude descargar PDF NC:", e?.message || e);
-    }
-
+    // ── PDF es opcional: si falla, la NC ya está guardada en DB ─────
     let pdfPublicUrl = "";
     try {
+      const pdfRes = await afip.ElectronicBilling.createPDF({
+        html: htmlNC,
+        file_name: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`,
+        options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
+      });
+      let pdfBuffer = null;
+      try { pdfBuffer = await downloadToBuffer(pdfRes.file); } catch {}
       if (pdfBuffer?.length) {
         pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
       } else {
         pdfPublicUrl = String(pdfRes.file || "");
       }
-    } catch (e) {
-      pdfPublicUrl = String(pdfRes.file || "");
-      console.error("⚠️ [NC] Error guardando PDF público:", e?.message || e);
+      // Actualizar pdf_url en DB ahora que tenemos el PDF
+      if (supabase && pdfPublicUrl) {
+        await supabase.from("facturas").update({ pdf_url: pdfPublicUrl }).eq("comprobante", ncComprobante);
+      }
+      console.log(`✅ [NC] PDF subido: ${pdfPublicUrl}`);
+    } catch (pdfErr) {
+      console.warn(`⚠️ [NC] PDF falló (NC igual guardada): ${pdfErr?.message || pdfErr}`);
     }
-
-    const ncComprobante = buildComprobanteLabelByTipo(cbteTipoNC, pvNc, nroNC);
-
-    await guardarComprobanteGeneralEnDB({
-      comprobante: ncComprobante,
-      cbteTipo: cbteTipoNC,
-      cuitCliente: original.cuitCliente,
-      nombreCliente: original.nombreCliente,
-      domicilio: original.domicilio || "",
-      nro: nroNC,
-      pv: pvNc,
-      cae: result.CAE,
-      impTotal: -totalOriginal,
-      pdfPublicUrl,
-      condicionVenta: `ANULACIÓN / NC ASOCIADA A ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
-      fecha,
-      items: [{
-        descripcion: `Anulación de ${original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura)}`,
-        cantidad: 1,
-        precio_con_iva: totalOriginal,
-        subtotal_con_iva: totalOriginal
-      }],
-      emailAEnviar: original.email_to || DEFAULT_EMAIL
-    });
-
-    await marcarComprobanteComoAnulado(
-      original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura),
-      ncComprobante,
-      result.CAE
-    );
 
     // ── Email NC vía Resend / Gmail (Sincrónico) ──
     const emailDestino = String(original.email_to || DEFAULT_EMAIL).trim();
