@@ -2693,35 +2693,53 @@ app.post("/anular-comprobante", async (req, res) => {
 
     const impNeto = round2(totalOriginal / 1.21);
     const impIVA = round2(totalOriginal - impNeto);
-    const nroNC = (await afip.ElectronicBilling.getLastVoucher(pvNc, cbteTipoNC)) + 1;
 
-    const voucherData = {
-      CantReg: 1,
-      PtoVta: pvNc,
-      CbteTipo: cbteTipoNC,
-      Concepto: 1,
-      DocTipo: 80,
-      DocNro: Number(original.cuitCliente),
-      CbteDesde: nroNC,
-      CbteHasta: nroNC,
-      CbteFch: cbteFch,
-      ImpTotal: totalOriginal,
-      ImpTotConc: 0,
-      ImpNeto: impNeto,
-      ImpOpEx: 0,
-      ImpIVA: impIVA,
-      ImpTrib: 0,
-      MonId: "PES",
-      MonCotiz: 1,
-      Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
-      CbtesAsoc: [{
-        Tipo: cbteTipoOriginal,
-        PtoVta: Number(original.puntoVenta),
-        Nro: Number(original.nroFactura)
-      }]
-    };
-
-    const result = await afip.ElectronicBilling.createVoucher(voucherData);
+    // ── Crear NC con retry ante 10016 / HTTP 400 del SDK ────────────
+    // El proxy api.afipsdk.com devuelve HTTP 400 cuando AFIP rechaza
+    // el número de comprobante (10016). Re-consultamos el número real
+    // y reintentamos hasta 2 veces con 800 ms de espera.
+    let nroNC, result;
+    for (let intento = 0; intento <= 2; intento++) {
+      nroNC = (await afip.ElectronicBilling.getLastVoucher(pvNc, cbteTipoNC)) + 1;
+      const vd = {
+        CantReg: 1,
+        PtoVta: pvNc,
+        CbteTipo: cbteTipoNC,
+        Concepto: 1,
+        DocTipo: 80,
+        DocNro: Number(original.cuitCliente),
+        CbteDesde: nroNC,
+        CbteHasta: nroNC,
+        CbteFch: cbteFch,
+        ImpTotal: totalOriginal,
+        ImpTotConc: 0,
+        ImpNeto: impNeto,
+        ImpOpEx: 0,
+        ImpIVA: impIVA,
+        ImpTrib: 0,
+        MonId: "PES",
+        MonCotiz: 1,
+        Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
+        CbtesAsoc: [{
+          Tipo: cbteTipoOriginal,
+          PtoVta: Number(original.puntoVenta),
+          Nro: Number(original.nroFactura)
+        }]
+      };
+      try {
+        result = await afip.ElectronicBilling.createVoucher(vd);
+        break; // éxito
+      } catch (ncErr) {
+        const msg = String(ncErr?.message || "");
+        const es400o10016 = msg.includes("400") || msg.includes("10016");
+        if (intento < 2 && es400o10016) {
+          console.warn(`⚠️ [AFIP NC] intento ${intento + 1}/2 (${msg.slice(0, 80)}), reintentando...`);
+          await new Promise(r => setTimeout(r, 800));
+          continue;
+        }
+        throw ncErr;
+      }
+    }
 
     const qrPayload = {
       ver: 1,
