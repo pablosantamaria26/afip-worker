@@ -2822,13 +2822,13 @@ app.post("/anular-comprobante", async (req, res) => {
 
     // ── PDF es opcional: si falla, la NC ya está guardada en DB ─────
     let pdfPublicUrl = "";
+    let pdfBuffer = null; // fuera del try para que el email lo pueda usar
     try {
       const pdfRes = await afip.ElectronicBilling.createPDF({
         html: htmlNC,
         file_name: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`,
         options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
       });
-      let pdfBuffer = null;
       try { pdfBuffer = await downloadToBuffer(pdfRes.file); } catch {}
       if (pdfBuffer?.length) {
         pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
