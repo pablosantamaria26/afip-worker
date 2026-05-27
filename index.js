@@ -2677,10 +2677,13 @@ app.post("/anular-comprobante", async (req, res) => {
 
     const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
     const cbteTipoNC = inferNcTipoFromOriginal(cbteTipoOriginal);
+
+    console.log(`🔍 [NC] Buscando PV para NC tipo ${cbteTipoNC} (original tipo ${cbteTipoOriginal})...`);
     const pvNc = await getPtoVentaSeguro();
-    
+    console.log(`🔍 [NC] PV obtenido: ${pvNc}`);
+
     // Acá tomamos la fecha que pongas en el modal, sino usa la de hoy
-    const fecha = req.body.fechaNC || todayISO(); 
+    const fecha = req.body.fechaNC || todayISO();
     const cbteFch = yyyymmdd(fecha);
 
     const totalOriginal = Math.abs(Number(original.total || 0));
@@ -2691,6 +2694,7 @@ app.post("/anular-comprobante", async (req, res) => {
       });
     }
 
+    console.log(`🔍 [NC] CUIT ${original.cuitCliente} | Total $${totalOriginal} | Fecha ${fecha}`);
     const impNeto = round2(totalOriginal / 1.21);
     const impIVA = round2(totalOriginal - impNeto);
 
@@ -2700,7 +2704,9 @@ app.post("/anular-comprobante", async (req, res) => {
     // y reintentamos hasta 2 veces con 800 ms de espera.
     let nroNC, result;
     for (let intento = 0; intento <= 2; intento++) {
+      console.log(`🔍 [NC] getLastVoucher(pv=${pvNc}, tipo=${cbteTipoNC}) intento ${intento}...`);
       nroNC = (await afip.ElectronicBilling.getLastVoucher(pvNc, cbteTipoNC)) + 1;
+      console.log(`🔍 [NC] nroNC calculado: ${nroNC}`);
       const vd = {
         CantReg: 1,
         PtoVta: pvNc,
