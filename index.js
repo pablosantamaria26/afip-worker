@@ -3294,7 +3294,13 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
     const todas = movimientos.map(m => ({
       fecha:       String(m.fecha || ""),
       nombre:      String(m.nombre || ""),
-      monto:       Math.abs(Number(String(m.monto || "0").replace(/\./g, "").replace(",", "."))),
+      monto:       (() => {
+        const raw = String(m.monto || "0").trim();
+        // Formato argentino "1.234,56": tiene coma → quitar puntos de miles, coma→punto
+        // Formato estándar  "1234.56": sin coma → el punto YA es decimal, parseFloat directo
+        if (raw.includes(",")) return Math.abs(parseFloat(raw.replace(/\./g, "").replace(",", ".")) || 0);
+        return Math.abs(parseFloat(raw) || 0);
+      })(),
       descripcion: String(m.descripcion || ""),
       cuit:        m.cuit ? onlyDigits(String(m.cuit)) : null,
       esChino:     detectarNombreChino(m.nombre)
