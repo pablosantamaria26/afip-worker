@@ -17,6 +17,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
 const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 
 // ================================================================
 // ✅ SUPABASE — persistencia real (sobrevive redeploys de Render)
@@ -39,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-05-EXTRACTO-FIX-RETRY-DEDUP";
+const APP_VERSION = "2026-05-REPORTE-CONCILIACION";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3334,7 +3335,7 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
       total: todas.length,
       detectados: chinos.length,
       transferencias: chinos,
-      todas: DEBUG ? todas : undefined
+      todas: todas
     });
 
   } catch (err) {
@@ -3342,6 +3343,149 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
     return res.status(500).json({ ok: false, message: err?.message || "Error al procesar extracto" });
   }
 });
+
+// ── generarReporteExtracto ────────────────────────────────────────
+// Genera y envía el Excel de conciliación del extracto mensual.
+// Sheet 1: Facturas emitidas, Sheet 2: NCs del mes, Sheet 3: Extracto con verde en las facturadas.
+async function generarReporteExtracto({ resultados, todasTransferencias, emailReporte, fecha, totalFacturado }) {
+  try {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Mercado Limpio";
+    wb.created = new Date();
+
+    // ── Sheet 1: Facturas emitidas ──────────────────────────────
+    const wsF = wb.addWorksheet("Facturas Emitidas");
+    wsF.columns = [
+      { header: "Comprobante", key: "comprobante", width: 20 },
+      { header: "CUIT",        key: "cuit",        width: 16 },
+      { header: "Nombre",      key: "nombre",      width: 32 },
+      { header: "Total ($)",   key: "total",       width: 16 },
+      { header: "CAE",         key: "cae",         width: 18 },
+      { header: "PDF",         key: "pdf",         width: 50 },
+    ];
+    // Encabezado con fondo oscuro
+    wsF.getRow(1).eachCell(cell => {
+      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.border = { bottom: { style: "thin", color: { argb: "FF334155" } } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    resultados.filter(r => r.ok).forEach(r => {
+      wsF.addRow({ comprobante: r.comprobante, cuit: r.cuit, nombre: r.nombre, total: r.total, cae: r.cae, pdf: r.pdfUrl || "" });
+    });
+    // Fila de total
+    const totalRow = wsF.addRow({ comprobante: "TOTAL", cuit: "", nombre: "", total: totalFacturado, cae: "", pdf: "" });
+    totalRow.getCell("comprobante").font = { bold: true };
+    totalRow.getCell("total").font = { bold: true };
+    totalRow.getCell("total").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2F0D9" } };
+
+    // ── Sheet 2: NCs del mes ────────────────────────────────────
+    const wsNC = wb.addWorksheet("Notas de Crédito");
+    wsNC.columns = [
+      { header: "Comprobante", key: "comprobante", width: 20 },
+      { header: "CUIT",        key: "cuit",        width: 16 },
+      { header: "Nombre",      key: "nombre",      width: 32 },
+      { header: "Total ($)",   key: "total",       width: 16 },
+      { header: "Fecha",       key: "fecha",       width: 14 },
+    ];
+    wsNC.getRow(1).eachCell(cell => {
+      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    if (supabase) {
+      try {
+        const mes = fecha.slice(5, 7);   // "05"
+        const anio = fecha.slice(0, 4);  // "2026"
+        const { data: ncs } = await supabase
+          .from("facturas")
+          .select("comprobante, cuit_cliente, nro_factura, total, fecha")
+          .eq("mes", mes).eq("anio", anio)
+          .lt("total", 0)
+          .order("fecha", { ascending: true });
+        (ncs || []).forEach(nc => {
+          wsNC.addRow({
+            comprobante: nc.comprobante || "",
+            cuit:  nc.cuit_cliente || "",
+            nombre: "",
+            total: Math.abs(nc.total),
+            fecha: nc.fecha || ""
+          });
+        });
+      } catch (e) { console.warn("[Reporte] Error cargando NCs:", e?.message); }
+    }
+
+    // ── Sheet 3: Extracto bancario con coloreo ──────────────────
+    const wsE = wb.addWorksheet("Extracto Bancario");
+    wsE.columns = [
+      { header: "Fecha",       key: "fecha",       width: 14 },
+      { header: "Nombre",      key: "nombre",      width: 32 },
+      { header: "CUIT",        key: "cuit",        width: 16 },
+      { header: "Monto ($)",   key: "monto",       width: 16 },
+      { header: "Estado",      key: "estado",      width: 20 },
+    ];
+    wsE.getRow(1).eachCell(cell => {
+      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+
+    // Construir set de facturadas para matcheo rápido por CUIT+monto
+    // Comparamos monto extracto * 1.21 ≈ total factura (tolerancia $2)
+    const facturadas = resultados.filter(r => r.ok);
+    function estaFacturada(t) {
+      const montoConIva = round2(t.monto * 1.21);
+      return facturadas.some(f => f.cuit === onlyDigits(String(t.cuit || "")) && Math.abs(f.total - montoConIva) <= 2);
+    }
+
+    (todasTransferencias || []).forEach(t => {
+      const facturada = estaFacturada(t);
+      const row = wsE.addRow({
+        fecha:  t.fecha  || "",
+        nombre: t.nombre || "",
+        cuit:   t.cuit   || "",
+        monto:  t.monto  || 0,
+        estado: facturada ? "✅ Facturada" : ""
+      });
+      if (facturada) {
+        row.eachCell(cell => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC6EFCE" } }; // verde Excel
+          cell.font = { color: { argb: "FF375623" } };
+        });
+      }
+    });
+
+    // ── Generar buffer y enviar por email ───────────────────────
+    const xlsxBuffer = await wb.xlsx.writeBuffer();
+
+    if (!resendClient) throw new Error("Resend no configurado");
+
+    const mesNombre = new Date(fecha + "T12:00:00").toLocaleString("es-AR", { month: "long", year: "numeric" });
+    const { error: rErr } = await resendClient.emails.send({
+      from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+      to: emailReporte,
+      reply_to: GMAIL_USER,
+      subject: `📊 Conciliación ${mesNombre} — ${resultados.filter(r => r.ok).length} facturas · $${formatMoneyAR(totalFacturado)}`,
+      html: `<p style="font-family:sans-serif;color:#1a1a1a;">
+        <strong>Reporte de conciliación bancaria</strong><br>
+        Adjunto encontrás el Excel con:<br>
+        &nbsp;📄 Sheet 1 — Facturas emitidas (${resultados.filter(r => r.ok).length})<br>
+        &nbsp;🔵 Sheet 2 — Notas de Crédito del mes<br>
+        &nbsp;🟢 Sheet 3 — Extracto bancario (filas verdes = facturadas)<br>
+        <br>Total facturado: <strong>$${formatMoneyAR(totalFacturado)}</strong><br>
+        Fecha: ${fecha}
+      </p>`,
+      attachments: [{
+        filename: `Conciliacion_${fecha.replace(/-/g, "")}.xlsx`,
+        content: Buffer.from(xlsxBuffer).toString("base64")
+      }]
+    });
+    if (rErr) throw new Error(`Resend: ${rErr.message || JSON.stringify(rErr)}`);
+    console.log(`✅ [Reporte] Excel de conciliación enviado a ${emailReporte}`);
+  } catch (e) {
+    console.error("⚠️ [Reporte] Error generando reporte:", e?.message);
+  }
+}
 
 // ── POST /facturar-extracto ─────────────────────────────────────
 // Recibe array de transferencias y emite una factura por cada una.
@@ -3352,6 +3496,7 @@ app.post("/facturar-extracto", async (req, res) => {
     const transferencias = Array.isArray(req.body.transferencias) ? req.body.transferencias : [];
     if (transferencias.length === 0) return res.status(400).json({ ok: false, message: "Sin transferencias" });
 
+    const todasTransferencias = Array.isArray(req.body.todasTransferencias) ? req.body.todasTransferencias : [];
     const condicionVenta = String(req.body.condicionVenta || "Transferencia Bancaria");
     const emailReporte   = String(req.body.emailReporte || "santamariapablodaniel@gmail.com");
     const fecha = todayISO();
@@ -3553,28 +3698,23 @@ app.post("/facturar-extracto", async (req, res) => {
         </div>
       </div>`;
 
-    try {
-      if (!resendClient) throw new Error("Resend no configurado");
-      const { error: extractoError } = await resendClient.emails.send({
-        from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
-        to: emailReporte,
-        reply_to: GMAIL_USER,
-        subject: `📊 Extracto procesado — ${ok_results.length} facturas · $${formatMoneyAR(totalFacturado)}`,
-        html: htmlReporte
-      });
-      if (extractoError) throw new Error(`Resend error: ${extractoError.message || JSON.stringify(extractoError)}`);
-      console.log(`✅ [Extracto] Email reporte enviado a ${emailReporte}`);
-    } catch (mailErr) {
-      console.error("⚠️ [Extracto] No se pudo enviar email reporte:", mailErr?.message);
-    }
-
-    return res.json({
+    // ── Responder al cliente YA (el Excel se genera en background) ──
+    res.json({
       ok: true,
       totalFacturado,
       facturasEmitidas: ok_results.length,
       errores,
       resultados
     });
+
+    // ── Generar y enviar Excel de conciliación en background ─────
+    generarReporteExtracto({
+      resultados,
+      todasTransferencias,
+      emailReporte,
+      fecha,
+      totalFacturado
+    }).catch(e => console.error("⚠️ [Reporte] Error inesperado:", e?.message));
 
   } catch (err) {
     console.error("❌ [/facturar-extracto]", err?.message || err);
