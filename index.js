@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-05-REPORTE-CONCILIACION";
+const APP_VERSION = "2026-05-DEDUP-MES-ANIO-FIX";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3371,10 +3371,24 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       cell.alignment = { vertical: "middle", horizontal: "center" };
     });
     resultados.filter(r => r.ok).forEach(r => {
-      wsF.addRow({ comprobante: r.comprobante, cuit: r.cuit, nombre: r.nombre, total: r.total, cae: r.cae, pdf: r.pdfUrl || "" });
+      const row = wsF.addRow({
+        comprobante: r.comprobante,
+        cuit: r.cuit,
+        nombre: r.nombre,
+        total: r.total,
+        cae: r.cae || (r.skipped ? "(ya existía)" : ""),
+        pdf: r.pdfUrl || ""
+      });
+      // Filas "ya existía" (dedup): fondo gris claro para distinguirlas
+      if (r.skipped) {
+        row.eachCell(cell => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
+          cell.font = { italic: true, color: { argb: "FF888888" } };
+        });
+      }
     });
-    // Fila de total
-    const totalRow = wsF.addRow({ comprobante: "TOTAL", cuit: "", nombre: "", total: totalFacturado, cae: "", pdf: "" });
+    // Fila de total (solo facturas nuevas, no skipped)
+    const totalRow = wsF.addRow({ comprobante: "TOTAL EMITIDO", cuit: "", nombre: "", total: totalFacturado, cae: "", pdf: "" });
     totalRow.getCell("comprobante").font = { bold: true };
     totalRow.getCell("total").font = { bold: true };
     totalRow.getCell("total").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2F0D9" } };
@@ -3430,12 +3444,29 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       cell.alignment = { vertical: "middle", horizontal: "center" };
     });
 
-    // Construir set de facturadas para matcheo rápido por CUIT+monto
-    // Comparamos monto extracto * 1.21 ≈ total factura (tolerancia $2)
-    const facturadas = resultados.filter(r => r.ok);
+    // Construir set de facturadas para matcheo: consultamos Supabase por el mes
+    // completo para capturar también facturas de corridas anteriores (no solo este batch).
+    // Fallback: usar resultados del batch actual si Supabase no responde.
+    let facturasDelMes = resultados.filter(r => r.ok).map(r => ({ cuit: r.cuit, total: r.total }));
+    if (supabase) {
+      try {
+        const mes  = Number(fecha.slice(5, 7));
+        const anio = Number(fecha.slice(0, 4));
+        const { data: dbF } = await supabase
+          .from("facturas")
+          .select("cuit_cliente, total")
+          .eq("mes", mes).eq("anio", anio)
+          .gt("total", 0)
+          .ilike("condicion_venta", "%EXTRACTO%");
+        if (dbF && dbF.length > 0) {
+          facturasDelMes = dbF.map(f => ({ cuit: f.cuit_cliente, total: f.total }));
+        }
+      } catch (e) { console.warn("[Reporte] No se pudo consultar facturas del mes:", e?.message); }
+    }
     function estaFacturada(t) {
       const montoConIva = round2(t.monto * 1.21);
-      return facturadas.some(f => f.cuit === onlyDigits(String(t.cuit || "")) && Math.abs(f.total - montoConIva) <= 2);
+      const cuitT = onlyDigits(String(t.cuit || ""));
+      return facturasDelMes.some(f => f.cuit === cuitT && Math.abs(f.total - montoConIva) <= 2);
     }
 
     (todasTransferencias || []).forEach(t => {
@@ -3520,22 +3551,30 @@ app.post("/facturar-extracto", async (req, res) => {
       }
 
       // ── Deduplicación: evitar doble facturación si el mismo extracto
-      //    se envía dos veces o si ya se facturó esta transferencia hoy ──
+      //    se envía dos veces o si ya se facturó esta transferencia.
+      //    IMPORTANTE: usamos mes+año de la transferencia (no fecha exacta),
+      //    porque la factura se graba con la fecha de procesamiento (hoy),
+      //    no con la fecha de la transferencia bancaria.
       if (supabase) {
         try {
-          const montoConIva = round2(monto * 1.21); // aprox del total con IVA
+          const montoConIva = round2(monto * 1.21);
+          const partesFecha = fechaTransf.split("-").map(Number);
+          const mesTransf  = partesFecha[1] || (new Date().getMonth() + 1);
+          const anioTransf = partesFecha[0] || new Date().getFullYear();
           const { data: dup } = await supabase
             .from("facturas")
-            .select("comprobante")
+            .select("comprobante, total")
             .eq("cuit_cliente", cuitCliente)
-            .eq("fecha", fechaTransf)
+            .eq("mes",  mesTransf)
+            .eq("anio", anioTransf)
             .gte("total", montoConIva - 2)
             .lte("total", montoConIva + 2)
             .ilike("condicion_venta", "%EXTRACTO%")
             .limit(1);
           if (dup && dup.length > 0) {
             console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
-            resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: monto, pdfUrl: "" });
+            // Guardamos el total REAL de la DB (con IVA) para que el reporte lo pinte verde correctamente
+            resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: dup[0].total, pdfUrl: "" });
             continue;
           }
         } catch (dupErr) {
