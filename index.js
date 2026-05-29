@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-05-DEDUP-MES-ANIO-FIX";
+const APP_VERSION = "2026-05-HISTORIAL";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -2080,6 +2080,70 @@ app.get("/admin/facturas-mes", async (req, res) => {
       ok: false,
       message: err?.message || "Error al leer facturas del mes"
     });
+  }
+});
+
+// ── GET /historial ─────────────────────────────────────────────
+// Búsqueda de comprobantes por mes/año + término libre (CUIT o nombre).
+// Query params: mes, anio, q (opcional), page (default 1), limit (default 40)
+app.get("/historial", async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ ok: false, message: "Supabase no disponible" });
+
+    const mes  = Number(req.query.mes)  || new Date().getMonth() + 1;
+    const anio = Number(req.query.anio) || new Date().getFullYear();
+    const q    = String(req.query.q || "").trim();
+    const page  = Math.max(1, Number(req.query.page)  || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
+    const from  = (page - 1) * limit;
+
+    let query = supabase
+      .from("facturas")
+      .select("comprobante, cbte_tipo, nro_factura, punto_venta, cae, cuit_cliente, nombre_cliente, total, pdf_url, fecha, condicion_venta, email_to, email_status, email_error", { count: "exact" })
+      .eq("mes",  mes)
+      .eq("anio", anio)
+      .order("nro_factura", { ascending: false })
+      .range(from, from + limit - 1);
+
+    // Búsqueda: si es solo dígitos → buscar por CUIT; si no → por nombre
+    if (q) {
+      const soloDigitos = /^\d+$/.test(q);
+      if (soloDigitos) {
+        query = query.ilike("cuit_cliente", `${q}%`);
+      } else {
+        query = query.ilike("nombre_cliente", `%${q}%`);
+      }
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    const facturas = (data || []).map(f => {
+      const cbteTipo = Number(f.cbte_tipo || inferCbteTipoFromComprobante(f.comprobante || "") || 0);
+      const tipoCbte = (cbteTipo === 3 || cbteTipo === 8 || cbteTipo === 13 || cbteTipo === 53 ||
+                        String(f.comprobante).startsWith("NC-")) ? "NC" : "FA";
+      const anulado  = /ANULADA POR/i.test(String(f.email_error || ""));
+      return {
+        comprobante:   String(f.comprobante || ""),
+        tipoCbte,
+        nroFactura:    Number(f.nro_factura || 0),
+        puntoVenta:    Number(f.punto_venta || 0),
+        cae:           String(f.cae || ""),
+        cuit:          String(f.cuit_cliente || ""),
+        nombre:        String(f.nombre_cliente || ""),
+        total:         Number(f.total || 0),
+        pdfUrl:        String(f.pdf_url || ""),
+        fecha:         String(f.fecha || ""),
+        condicionVenta: String(f.condicion_venta || ""),
+        emailTo:       String(f.email_to || ""),
+        anulado
+      };
+    });
+
+    return res.json({ ok: true, mes, anio, page, total: count || 0, facturas });
+  } catch (err) {
+    console.error("❌ [/historial]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al buscar historial" });
   }
 });
 
