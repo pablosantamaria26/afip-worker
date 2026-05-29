@@ -3945,3 +3945,60 @@ app.post("/mailer/send", mailerAuth, mailerUpload.array("archivos", 20), async (
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ── POST /compras/chat ─────────────────────────────────────────────────────
+// Chat de IA para el sistema de predicción de compras.
+// Body: { messages: [{role:"user"|"assistant", content:string}], contexto?: string }
+// El front-end puede enviar el contexto pre-armado (más eficiente)
+// o el endpoint puede cargarlo desde Supabase si se omite.
+app.post("/compras/chat", async (req, res) => {
+  if (!geminiModel) {
+    return res.status(503).json({ ok: false, error: "IA no configurada (GEMINI_API_KEY faltante)" });
+  }
+
+  const { messages = [], contexto = "" } = req.body || {};
+
+  if (!messages.length) {
+    return res.status(400).json({ ok: false, error: "Se requiere al menos un mensaje" });
+  }
+
+  // Último mensaje del usuario
+  const lastMsg = [...messages].reverse().find(m => m.role === "user");
+  if (!lastMsg) {
+    return res.status(400).json({ ok: false, error: "No se encontró mensaje del usuario" });
+  }
+
+  // Historial reciente (últimas 10 interacciones)
+  const recentHistory = messages.slice(-10);
+  const histTxt = recentHistory
+    .map(m => `${m.role === "user" ? "Usuario" : "Asistente"}: ${m.content}`)
+    .join("\n");
+
+  const prompt = `Sos el asistente de compras de Mercado Limpio Distribuidora.
+Tu función es ayudar al dueño a decidir QUÉ comprar, CUÁNTO y CUÁNDO.
+Respondé en español rioplatense. Sé directo, concreto y útil.
+Usá los datos reales del negocio para dar recomendaciones específicas con números.
+Máximo 150 palabras. Sin listas de más de 5 ítems. Sin asteriscos.
+
+${contexto || "Contexto del negocio no disponible en este momento."}
+
+CONVERSACIÓN:
+${histTxt}
+
+Asistente:`;
+
+  try {
+    // Usamos un modelo sin JSON forzado para respuestas conversacionales
+    const chatModel = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: { temperature: 0.4, maxOutputTokens: 300 }
+    });
+    const result = await chatModel.generateContent(prompt);
+    const text = result.response.text().trim();
+    console.log(`✅ [Compras Chat] ${text.slice(0, 80)}...`);
+    res.json({ ok: true, text });
+  } catch (err) {
+    console.error("❌ [Compras Chat]", err?.message || err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
