@@ -55,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-PDF-LOCAL";
+const APP_VERSION = "2026-06-IMPORTAR-HUERFANAS";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -813,6 +813,73 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
 // ============================
 app.get("/health", (req, res) => res.json({ ok: true, version: APP_VERSION, iaIntegrada: !!geminiModel, supabase: !!supabase }));
 
+// ── POST /importar-comprobante-afip ────────────────────────────
+// Importa a Supabase una factura que existe en AFIP pero no en la DB local
+// (huérfana por fallo de PDF). Body: { nro, punto_venta?, cuit_cliente, total }
+// Consulta el CAE real desde AFIP y guarda el registro para que aparezca en historial.
+app.post("/importar-comprobante-afip", async (req, res) => {
+  try {
+    if (!supabase) return res.status(500).json({ ok: false, message: "Sin Supabase" });
+    const nro   = Number(req.body.nro);
+    const pv    = Number(req.body.punto_venta || 5);
+    const cuit  = onlyDigits(String(req.body.cuit_cliente || ""));
+    const total = Number(req.body.total || 0);
+    if (!nro || !cuit || !total) return res.status(400).json({ ok: false, message: "Faltan nro, cuit_cliente o total" });
+
+    // Verificar que no existe ya
+    const comp = buildComprobanteLabelByTipo(CBTE_TIPO_REAL, pv, nro);
+    const { data: existe } = await supabase.from("facturas").select("comprobante").eq("comprobante", comp).limit(1);
+    if (existe?.length) return res.json({ ok: true, message: "Ya existe en Supabase", comprobante: comp, ya_existia: true });
+
+    // Obtener CAE desde AFIP
+    let cae = "", caeVto = "";
+    try {
+      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, CBTE_TIPO_REAL);
+      cae    = String(info?.CAE || "");
+      caeVto = info?.CAEFchVto
+        ? `${info.CAEFchVto.slice(0,4)}-${info.CAEFchVto.slice(4,6)}-${info.CAEFchVto.slice(6,8)}`
+        : "";
+    } catch (e) {
+      console.warn("⚠️ [importar] No pude obtener CAE de AFIP:", e?.message);
+    }
+
+    // Obtener nombre del receptor
+    const rec = await getReceptorDesdePadron(cuit);
+
+    const fecha = String(req.body.fecha || todayISO());
+    const registro = {
+      timestamp: new Date().toISOString(),
+      fecha,
+      anio: Number(fecha.split("-")[0]),
+      mes:  Number(fecha.split("-")[1]),
+      comprobante: comp,
+      cbte_tipo: CBTE_TIPO_REAL,
+      nro_factura: nro,
+      punto_venta: pv,
+      cae,
+      cuit_cliente: cuit,
+      nombre_cliente: rec.nombre || `CUIT ${cuit}`,
+      domicilio: rec.domicilioAfip || "",
+      condicion_venta: String(req.body.condicion_venta || "Transferencia Bancaria"),
+      total,
+      pdf_url: "",
+      email_to: "",
+      email_status: "pending",
+      email_error: "importado manualmente — sin PDF",
+      items: JSON.stringify([{ descripcion: "Importado desde AFIP", cantidad: 1, precio_con_iva: total, subtotal_con_iva: total }])
+    };
+
+    const { error: dbErr } = await supabase.from("facturas").upsert([registro], { onConflict: "comprobante" });
+    if (dbErr) throw dbErr;
+
+    console.log(`✅ [importar] ${comp} importado | CUIT ${cuit} | $${total} | CAE ${cae}`);
+    return res.json({ ok: true, comprobante: comp, cae, nombre: rec.nombre });
+  } catch (err) {
+    console.error("❌ [/importar-comprobante-afip]", err?.message);
+    return res.status(500).json({ ok: false, message: err?.message });
+  }
+});
+
 // ── GET /ver-factura/:comprobante ───────────────────────────────
 // Devuelve el HTML imprimible de una factura (Ctrl+P → Guardar como PDF)
 // Útil cuando el límite de PDFs del SDK está agotado.
@@ -1160,7 +1227,7 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
       html: mailHtml,
       attachments: mailAttachments.map(at => ({
         filename: at.filename,
-        content: at.content
+        content: Buffer.isBuffer(at.content) ? at.content.toString("base64") : at.content
       }))
     });
 
@@ -2395,7 +2462,7 @@ app.post("/reenviar-email", async (req, res) => {
 
     const attachments = pdfBuffer ? [{
       filename: `${comprobante.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`,
-      content: pdfBuffer
+      content: Buffer.isBuffer(pdfBuffer) ? pdfBuffer.toString("base64") : pdfBuffer
     }] : [];
 
     console.log(`🚀 [Reenvio] Enviando ${comprobante} a ${emailDestino}...`);
@@ -3129,7 +3196,7 @@ app.post("/anular-comprobante", async (req, res) => {
           html: mailHtmlNC,
           attachments: pdfBuffer?.length ? [{
             filename: `NC_${ncComprobante}.pdf`,
-            content: pdfBuffer
+            content: pdfBuffer.toString("base64")
           }] : []
         });
         if (ncResendError) throw new Error(`Resend error: ${ncResendError.message || JSON.stringify(ncResendError)}`);
