@@ -16,8 +16,23 @@ const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
-const XLSX = require("xlsx");
-const ExcelJS = require("exceljs");
+const XLSX     = require("xlsx");
+const ExcelJS  = require("exceljs");
+const htmlPdfNode = require("html-pdf-node");
+
+// ── Generador de PDF local (sin afipsdk.com, sin límites de plan) ──
+async function crearPdfLocal(html, _fileName) {
+  const buf = await htmlPdfNode.generatePdf(
+    { content: html },
+    {
+      format: "A4",
+      printBackground: true,
+      margin: { top: "9mm", right: "9mm", bottom: "9mm", left: "9mm" },
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    }
+  );
+  return buf; // Buffer listo para guardar/adjuntar
+}
 
 // ================================================================
 // ✅ SUPABASE — persistencia real (sobrevive redeploys de Render)
@@ -40,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-VER-FACTURA";
+const APP_VERSION = "2026-06-PDF-LOCAL";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -1382,49 +1397,11 @@ app.post("/facturar", async (req, res) => {
       let pdfBuffer = null;
       let pdfPublicUrl = "";
       try {
-        const pdfRes = await afip.ElectronicBilling.createPDF({
-          html: htmlPDF,
-          file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-          options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
-        });
-
-        async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
-          let lastErr;
-          for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-              const buffer = await downloadToBuffer(url);
-              if (buffer && buffer.length > 0) return buffer;
-              throw new Error("PDF vacío");
-            } catch (e) {
-              lastErr = e;
-              if (attempt < maxRetries) await new Promise(res => setTimeout(res, delayMs));
-            }
-          }
-          throw lastErr || new Error("No se pudo descargar el PDF");
-        }
-
-        try {
-          pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
-          console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
-        } catch (e) {
-          console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
-        }
-
-        try {
-          if (pdfBuffer?.length) {
-            pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-            console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
-          } else {
-            pdfPublicUrl = String(pdfRes.file || "");
-          }
-        } catch (e) {
-          pdfPublicUrl = String(pdfRes.file || "");
-          console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
-        }
+        pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        console.log(`✅ [PDF] Generado y guardado: FA_${pad(pv, 5)}-${pad(nro, 8)} (${pdfBuffer.length} bytes)`);
       } catch (pdfErr) {
-        const pdfDetail = pdfErr?.response?.data || pdfErr?.data;
-        console.warn(`⚠️ [PDF] Falló createPDF (factura ya tiene CAE, se guarda sin PDF): ${pdfErr?.message}`,
-          pdfDetail ? JSON.stringify(pdfDetail) : "");
+        console.warn(`⚠️ [PDF] Falló generación local (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
       const comprobante = await guardarFacturaEnDB({
@@ -1614,24 +1591,9 @@ app.post("/regenerar-pdf", async (req, res) => {
       qrDataUrl, isPreview: false
     });
 
-    const pdfRes = await afip.ElectronicBilling.createPDF({
-      html: htmlPDF,
-      file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-      options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
-    });
-
-    let pdfBuffer = null;
-    try {
-      await new Promise(r => setTimeout(r, 1500));
-      pdfBuffer = await downloadToBuffer(pdfRes.file);
-    } catch {}
-
-    let pdfPublicUrl = "";
-    try {
-      pdfPublicUrl = pdfBuffer?.length
-        ? await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`)
-        : String(pdfRes.file || "");
-    } catch { pdfPublicUrl = String(pdfRes.file || ""); }
+    const pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+    const pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+    console.log(`✅ [regenerar-pdf] PDF generado: ${pdfBuffer.length} bytes`);
 
     // Actualizar pdf_url en Supabase
     await supabase.from("facturas").update({ pdf_url: pdfPublicUrl }).eq("comprobante", f.comprobante);
@@ -3093,22 +3055,12 @@ app.post("/anular-comprobante", async (req, res) => {
     let pdfPublicUrl = "";
     let pdfBuffer = null; // fuera del try para que el email lo pueda usar
     try {
-      const pdfRes = await afip.ElectronicBilling.createPDF({
-        html: htmlNC,
-        file_name: `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`,
-        options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
-      });
-      try { pdfBuffer = await downloadToBuffer(pdfRes.file); } catch {}
-      if (pdfBuffer?.length) {
-        pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
-      } else {
-        pdfPublicUrl = String(pdfRes.file || "");
-      }
-      // Actualizar pdf_url en DB ahora que tenemos el PDF
+      pdfBuffer = await crearPdfLocal(htmlNC, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
+      pdfPublicUrl = await savePublicPdf(pdfBuffer, `NC_${pad(pvNc, 5)}-${pad(nroNC, 8)}`);
       if (supabase && pdfPublicUrl) {
         await supabase.from("facturas").update({ pdf_url: pdfPublicUrl }).eq("comprobante", ncComprobante);
       }
-      console.log(`✅ [NC] PDF subido: ${pdfPublicUrl}`);
+      console.log(`✅ [NC] PDF generado y guardado: ${pdfPublicUrl}`);
     } catch (pdfErr) {
       console.warn(`⚠️ [NC] PDF falló (NC igual guardada): ${pdfErr?.message || pdfErr}`);
     }
@@ -3914,23 +3866,15 @@ app.post("/facturar-extracto", async (req, res) => {
           condicionVenta, qrDataUrl, isPreview: false
         });
 
-        const pdfRes = await afip.ElectronicBilling.createPDF({
-          html: htmlPDF, file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-          options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
-        });
-
         let pdfBuffer = null;
-        try {
-          await new Promise(r => setTimeout(r, 1500));
-          pdfBuffer = await downloadToBuffer(pdfRes.file);
-        } catch {}
-
         let pdfPublicUrl = "";
         try {
-          pdfPublicUrl = pdfBuffer?.length
-            ? await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`)
-            : String(pdfRes.file || "");
-        } catch { pdfPublicUrl = String(pdfRes.file || ""); }
+          pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+          pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+          console.log(`✅ [PDF] Extracto ${pad(pv,5)}-${pad(nro,8)}: ${pdfBuffer.length} bytes`);
+        } catch (pdfErr) {
+          console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
+        }
 
         const comprobante = `M-${pad(pv, 5)}-${pad(nro, 8)}`;
 

@@ -16,7 +16,9 @@
     "@supabase/supabase-js": "^2.99.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "html-pdf-node": "^1.0.8",
     "multer": "^2.0.2",
     "node-cron": "^3.0.3",
     "nodemailer": "^8.0.1",
@@ -25,7 +27,6 @@
     "qrcode": "^1.5.4",
     "resend": "^6.9.3",
     "tesseract.js": "^7.0.0",
-    "exceljs": "^4.4.0",
     "xlsx": "^0.18.5"
   }
 }
