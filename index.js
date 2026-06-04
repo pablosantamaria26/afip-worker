@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-REGENERAR-PDF";
+const APP_VERSION = "2026-06-VER-FACTURA";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -797,6 +797,75 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
 // ROUTES
 // ============================
 app.get("/health", (req, res) => res.json({ ok: true, version: APP_VERSION, iaIntegrada: !!geminiModel, supabase: !!supabase }));
+
+// ── GET /ver-factura/:comprobante ───────────────────────────────
+// Devuelve el HTML imprimible de una factura (Ctrl+P → Guardar como PDF)
+// Útil cuando el límite de PDFs del SDK está agotado.
+app.get("/ver-factura/:comprobante", async (req, res) => {
+  try {
+    if (!supabase) return res.status(500).send("Sin Supabase");
+    const comp = req.params.comprobante.trim();
+    const { data: rows } = await supabase.from("facturas").select("*")
+      .eq("comprobante", comp).limit(1);
+    if (!rows?.length) return res.status(404).send(`<h2>Factura ${comp} no encontrada</h2>`);
+
+    const f = rows[0];
+    const pv  = Number(f.punto_venta);
+    const nro = Number(f.nro_factura);
+    const impTotal = round2(Number(f.total || 0));
+    const impNeto  = round2(impTotal / 1.21);
+    const impIVA   = round2(impTotal - impNeto);
+    const fecha    = String(f.fecha || todayISO());
+
+    let rawItems = [];
+    try { rawItems = JSON.parse(f.items || "[]"); } catch {}
+    const itemsCalc = rawItems.map(it => {
+      const sub = round2(Number(it.subtotal_con_iva || it.subtotalConIva || 0));
+      const subNeto = round2(sub / 1.21);
+      return {
+        descripcion: it.descripcion, cantidad: Number(it.cantidad || 1),
+        precioConIva: Number(it.precio_con_iva || it.precioConIva || 0),
+        subtotalConIva: sub, subtotalNeto: subNeto,
+        precioNeto: Number(it.cantidad || 1) > 0 ? round2(subNeto / Number(it.cantidad || 1)) : subNeto
+      };
+    });
+
+    const qrPayload = {
+      ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+      tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+      moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(f.cuit_cliente),
+      tipoCodAut: "E", codAut: Number(f.cae || 0)
+    };
+    const qrDataUrl = await QRCode.toDataURL(
+      `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+      { margin: 0, width: 170 }
+    );
+
+    const rec = await getReceptorDesdePadron(f.cuit_cliente);
+    if (!rec.nombre || rec.nombre.startsWith("CUIT ")) rec.nombre = f.nombre_cliente || rec.nombre;
+
+    const html = buildFacturaHtml({
+      receptor: { cuit: f.cuit_cliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip || f.domicilio || "", domicilioRemito: "" },
+      fechaISO: fecha, pv, nro, items: itemsCalc,
+      neto: impNeto, iva: impIVA, total: impTotal,
+      cae: f.cae || "", caeVtoISO: "",
+      condicionVenta: f.condicion_venta || "Transferencia Bancaria",
+      qrDataUrl, isPreview: false
+    });
+
+    // Agregar estilo de impresión automática
+    const htmlConPrint = html.replace("</head>",
+      `<style>@media print { @page { margin: 0.5cm; } }</style>
+       <script>window.onload = function(){ if(window.location.search.includes('print=1')) window.print(); }</script>
+       </head>`
+    );
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(htmlConPrint);
+  } catch (err) {
+    console.error("❌ [/ver-factura]", err?.message);
+    res.status(500).send(`<h2>Error: ${err?.message}</h2>`);
+  }
+});
 
 app.get("/tipos", async (req, res) => {
   try { res.json({ pv: await getPtoVentaSeguro(), tipos: [{ id: CBTE_TIPO_REAL, name: "Factura (WS)", habilitado: true }] }); }
