@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-FACTURAR-RETRY";
+const APP_VERSION = "2026-06-PDF-LIMIT-FIX";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -1308,55 +1308,54 @@ app.post("/facturar", async (req, res) => {
         totalFinal: impTotal
       });
 
-      const pdfRes = await afip.ElectronicBilling.createPDF({
-        html: htmlPDF,
-        file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
-        options: {
-          width: 8.27,
-          marginTop: 0.35,
-          marginBottom: 0.35,
-          marginLeft: 0.35,
-          marginRight: 0.35
-        }
-      });
-
-      async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
-        let lastErr;
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            const buffer = await downloadToBuffer(url);
-            if (buffer && buffer.length > 0) return buffer;
-            throw new Error("PDF vacío");
-          } catch (e) {
-            lastErr = e;
-            if (attempt < maxRetries) {
-              await new Promise(res => setTimeout(res, delayMs));
-            }
-          }
-        }
-        throw lastErr || new Error("No se pudo descargar el PDF");
-      }
-
+      // ── PDF: envuelto en try/catch para que un fallo de límite de plan
+      //    no impida guardar la factura en DB (ya tiene CAE válido de AFIP)
       let pdfBuffer = null;
-      try {
-        pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
-        console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
-      } catch (e) {
-        console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
-      }
-
       let pdfPublicUrl = "";
       try {
-        if (pdfBuffer?.length) {
-          pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-          console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
-        } else {
-          pdfPublicUrl = String(pdfRes.file || "");
-          console.warn(`⚠️ [PDF] Uso URL original de AFIPSDK: ${pdfPublicUrl}`);
+        const pdfRes = await afip.ElectronicBilling.createPDF({
+          html: htmlPDF,
+          file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+          options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
+        });
+
+        async function downloadPdfWithRetry(url, maxRetries = 5, delayMs = 1500) {
+          let lastErr;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const buffer = await downloadToBuffer(url);
+              if (buffer && buffer.length > 0) return buffer;
+              throw new Error("PDF vacío");
+            } catch (e) {
+              lastErr = e;
+              if (attempt < maxRetries) await new Promise(res => setTimeout(res, delayMs));
+            }
+          }
+          throw lastErr || new Error("No se pudo descargar el PDF");
         }
-      } catch (e) {
-        pdfPublicUrl = String(pdfRes.file || "");
-        console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
+
+        try {
+          pdfBuffer = await downloadPdfWithRetry(pdfRes.file);
+          console.log(`✅ [PDF] Descargado ${pad(pv, 5)}-${pad(nro, 8)} | bytes=${pdfBuffer.length}`);
+        } catch (e) {
+          console.error("⚠️ [PDF] No pude bajar PDF:", e?.message || e);
+        }
+
+        try {
+          if (pdfBuffer?.length) {
+            pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+            console.log(`✅ [PDF] URL pública: ${pdfPublicUrl}`);
+          } else {
+            pdfPublicUrl = String(pdfRes.file || "");
+          }
+        } catch (e) {
+          pdfPublicUrl = String(pdfRes.file || "");
+          console.error("⚠️ [PDF] Error guardando copia pública:", e?.message || e);
+        }
+      } catch (pdfErr) {
+        const pdfDetail = pdfErr?.response?.data || pdfErr?.data;
+        console.warn(`⚠️ [PDF] Falló createPDF (factura ya tiene CAE, se guarda sin PDF): ${pdfErr?.message}`,
+          pdfDetail ? JSON.stringify(pdfDetail) : "");
       }
 
       const comprobante = await guardarFacturaEnDB({
