@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-PDF-LIMIT-FIX";
+const APP_VERSION = "2026-06-REGENERAR-PDF";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -1464,6 +1464,136 @@ app.post("/facturar", async (req, res) => {
   }
 });
 
+// ── POST /regenerar-pdf ─────────────────────────────────────────
+// Regenera el PDF de una factura que quedó sin PDF (ej: límite de plan SDK).
+// Body: { comprobante: "M-00005-00000217" }  (o nro_factura + punto_venta)
+// Llama a createPDF con los datos de Supabase, actualiza pdf_url y envía email.
+app.post("/regenerar-pdf", async (req, res) => {
+  try {
+    if (!supabase) return res.status(500).json({ ok: false, message: "Sin Supabase" });
+
+    const comprobante = String(req.body.comprobante || "").trim();
+    const nroQuery    = Number(req.body.nro_factura || 0);
+    const pvQuery     = Number(req.body.punto_venta || 5);
+
+    let query = supabase.from("facturas").select("*");
+    if (comprobante) query = query.eq("comprobante", comprobante);
+    else if (nroQuery) query = query.eq("nro_factura", nroQuery).eq("punto_venta", pvQuery);
+    else return res.status(400).json({ ok: false, message: "Indicá comprobante o nro_factura" });
+
+    const { data: rows, error: dbErr } = await query.limit(1);
+    if (dbErr || !rows?.length) return res.status(404).json({ ok: false, message: "Factura no encontrada en Supabase" });
+
+    const f = rows[0];
+    const pv  = Number(f.punto_venta);
+    const nro = Number(f.nro_factura);
+    const cae = String(f.cae || "");
+
+    // Reconstruir items al formato de buildFacturaHtml
+    let rawItems = [];
+    try { rawItems = JSON.parse(f.items || "[]"); } catch {}
+    const itemsCalc = rawItems.map(it => {
+      const subConIva = Number(it.subtotal_con_iva || it.subtotalConIva || 0);
+      const subNeto   = round2(subConIva / 1.21);
+      return {
+        descripcion:    it.descripcion,
+        cantidad:       Number(it.cantidad || 1),
+        precioConIva:   Number(it.precio_con_iva || it.precioConIva || 0),
+        subtotalConIva: subConIva,
+        subtotalNeto:   subNeto,
+        precioNeto:     Number(it.cantidad || 1) > 0 ? round2(subNeto / Number(it.cantidad || 1)) : subNeto
+      };
+    });
+
+    const impTotal = round2(Number(f.total || 0));
+    const impNeto  = round2(impTotal / 1.21);
+    const impIVA   = round2(impTotal - impNeto);
+    const fecha    = String(f.fecha || todayISO());
+
+    // Consultar vencimiento CAE en AFIP (best-effort)
+    let caeVtoISO = "";
+    try {
+      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, CBTE_TIPO_REAL);
+      caeVtoISO = info?.CAEFchVto
+        ? `${info.CAEFchVto.slice(0,4)}-${info.CAEFchVto.slice(4,6)}-${info.CAEFchVto.slice(6,8)}`
+        : "";
+    } catch {}
+
+    // Reconstruir QR
+    const qrPayload = {
+      ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+      tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+      moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(f.cuit_cliente),
+      tipoCodAut: "E", codAut: Number(cae)
+    };
+    const qrDataUrl = await QRCode.toDataURL(
+      `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+      { margin: 0, width: 170 }
+    );
+
+    // Datos del receptor (padron o fallback desde Supabase)
+    const rec = await getReceptorDesdePadron(f.cuit_cliente);
+    if (!rec.nombre || rec.nombre.startsWith("CUIT ")) rec.nombre = f.nombre_cliente || rec.nombre;
+
+    const htmlPDF = buildFacturaHtml({
+      receptor: { cuit: f.cuit_cliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip || f.domicilio || "", domicilioRemito: "" },
+      fechaISO: fecha, pv, nro,
+      items: itemsCalc,
+      neto: impNeto, iva: impIVA, total: impTotal,
+      cae, caeVtoISO,
+      condicionVenta: f.condicion_venta || "Transferencia Bancaria",
+      qrDataUrl, isPreview: false
+    });
+
+    const pdfRes = await afip.ElectronicBilling.createPDF({
+      html: htmlPDF,
+      file_name: `FA_${pad(pv, 5)}-${pad(nro, 8)}`,
+      options: { width: 8.27, marginTop: 0.35, marginBottom: 0.35, marginLeft: 0.35, marginRight: 0.35 }
+    });
+
+    let pdfBuffer = null;
+    try {
+      await new Promise(r => setTimeout(r, 1500));
+      pdfBuffer = await downloadToBuffer(pdfRes.file);
+    } catch {}
+
+    let pdfPublicUrl = "";
+    try {
+      pdfPublicUrl = pdfBuffer?.length
+        ? await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`)
+        : String(pdfRes.file || "");
+    } catch { pdfPublicUrl = String(pdfRes.file || ""); }
+
+    // Actualizar pdf_url en Supabase
+    await supabase.from("facturas").update({ pdf_url: pdfPublicUrl }).eq("comprobante", f.comprobante);
+    console.log(`✅ [regenerar-pdf] PDF regenerado: ${f.comprobante} → ${pdfPublicUrl}`);
+
+    // Enviar email con el PDF
+    const emailDest = String(req.body.email || f.email_to || DEFAULT_EMAIL);
+    if (resendClient && emailDest && pdfBuffer?.length) {
+      try {
+        await resendClient.emails.send({
+          from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
+          to: emailDest,
+          reply_to: GMAIL_USER,
+          subject: `Factura ${f.comprobante} — ${rec.nombre}`,
+          html: `<p style="font-family:sans-serif">Adjunto el PDF de la factura <strong>${f.comprobante}</strong> por $${formatMoneyAR(impTotal)}.</p>`,
+          attachments: [{ filename: `${f.comprobante}.pdf`, content: pdfBuffer.toString("base64") }]
+        });
+        console.log(`✅ [regenerar-pdf] Email enviado a ${emailDest}`);
+      } catch (mailErr) {
+        console.warn("⚠️ [regenerar-pdf] Email falló:", mailErr?.message);
+      }
+    }
+
+    return res.json({ ok: true, comprobante: f.comprobante, pdfUrl: pdfPublicUrl });
+  } catch (err) {
+    const detail = err?.response?.data || err?.data;
+    console.error("❌ [/regenerar-pdf]", err?.message, detail ? JSON.stringify(detail) : "");
+    return res.status(500).json({ ok: false, message: err?.message, detail });
+  }
+});
+
 // ================================================================
 // 📅 REPORTE MENSUAL AUTOMÁTICO — se ejecuta el 1° de cada mes
 // ================================================================
@@ -1900,7 +2030,7 @@ async function guardarFacturaEnDB({
     fecha,
     anio: Number(String(fecha).split("-")[0]),
     mes: Number(String(fecha).split("-")[1]),
-    comprobante: `A-${String(pv).padStart(5, "0")}-${String(nro).padStart(8, "0")}`,
+    comprobante: buildComprobanteLabelByTipo(CBTE_TIPO_REAL, pv, nro),
     nro_factura: nro,
     punto_venta: pv,
     cae: String(cae),
