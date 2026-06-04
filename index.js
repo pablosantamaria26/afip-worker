@@ -40,7 +40,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-05-HISTORIAL";
+const APP_VERSION = "2026-06-FACTURAR-RETRY";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -1230,30 +1230,35 @@ app.post("/facturar", async (req, res) => {
         acumuladoSubBruto = round2(acumuladoSubBruto + subBrutoParte);
       }
 
-      const nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
-
-      const voucherData = {
-        CantReg: 1,
-        PtoVta: pv,
-        CbteTipo: CBTE_TIPO_REAL,
-        Concepto: 1,
-        DocTipo: 80,
-        DocNro: Number(cuitCliente),
-        CbteDesde: nro,
-        CbteHasta: nro,
-        CbteFch: cbteFch,
-        ImpTotal: impTotal,
-        ImpTotConc: 0,
-        ImpNeto: impNeto,
-        ImpOpEx: 0,
-        ImpIVA: impIVA,
-        ImpTrib: 0,
-        MonId: "PES",
-        MonCotiz: 1,
-        Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
-      };
-
-      const result = await afip.ElectronicBilling.createVoucher(voucherData);
+      // ── Obtener número y emitir con retry ante error 10016 / 400 ──
+      let nro, result;
+      for (let intento = 0; intento <= 2; intento++) {
+        nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+        const voucherData = {
+          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+          DocTipo: 80, DocNro: Number(cuitCliente),
+          CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
+          ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
+          ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
+          MonId: "PES", MonCotiz: 1,
+          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+        };
+        try {
+          result = await afip.ElectronicBilling.createVoucher(voucherData);
+          break; // éxito
+        } catch (afipErr) {
+          const msg = String(afipErr?.message || "");
+          // Log del detalle para diagnóstico
+          const detail = afipErr?.response?.data || afipErr?.data;
+          if (detail) console.error("⚠️ [AFIP] Detalle error:", JSON.stringify(detail));
+          if (intento < 2 && (msg.includes("10016") || msg.includes("400"))) {
+            console.warn(`⚠️ [AFIP] /facturar intento ${intento + 1}/2 (${msg}), reintentando en 800ms...`);
+            await new Promise(r => setTimeout(r, 800));
+            continue;
+          }
+          throw afipErr;
+        }
+      }
 
       const qrPayload = {
         ver: 1,
@@ -1452,10 +1457,11 @@ app.post("/facturar", async (req, res) => {
     });
 
   } catch (err) {
+    const detail = err?.response?.data || err?.data || null;
     if (!res.headersSent) {
-      res.status(500).json({ message: err.message, detail: err?.data || null });
+      res.status(500).json({ message: err.message, detail });
     }
-    console.error("❌ [/facturar]", err?.message || err);
+    console.error("❌ [/facturar]", err?.message || err, detail ? JSON.stringify(detail) : "");
   }
 });
 
