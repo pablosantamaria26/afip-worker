@@ -55,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-IMPORTAR-HUERFANAS";
+const APP_VERSION = "2026-06-CRUCE-EXTRACTO";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3613,16 +3613,52 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
       esChino:     detectarNombreChino(m.nombre)
     })).filter(m => m.monto > 0);
 
-    const chinos = todas.filter(m => m.esChino);
+    // ── Cruce con facturas del periodo actual ──────────────────────
+    // Una sola query a Supabase por el mes/año actual; luego cruce en memoria.
+    // - CUIT presente → ya facturado si existe alguna factura del mismo CUIT en el periodo.
+    // - CUIT ausente  → ya facturado si existe factura con monto ±$2 en el periodo.
+    let facturasDelPeriodo = [];
+    if (supabase) {
+      const ahora      = new Date();
+      const mesActual  = ahora.getMonth() + 1;
+      const anioActual = ahora.getFullYear();
+      try {
+        const { data: fac } = await supabase
+          .from("facturas")
+          .select("cuit_cliente, total")
+          .eq("mes",  mesActual)
+          .eq("anio", anioActual)
+          .gt("total", 0);
+        if (fac) facturasDelPeriodo = fac;
+        console.log(`ℹ️ [Extracto] Facturas en periodo ${mesActual}/${anioActual}: ${facturasDelPeriodo.length}`);
+      } catch (e) {
+        console.warn("⚠️ [Extracto] No se pudo cargar facturas del periodo:", e?.message);
+      }
+    }
 
-    console.log(`✅ [Extracto] Total: ${todas.length} | Clientes chinos: ${chinos.length}`);
+    const todasConEstado = todas.map(m => {
+      let yaFacturado = false;
+      if (facturasDelPeriodo.length > 0) {
+        if (m.cuit && m.cuit.length === 11) {
+          yaFacturado = facturasDelPeriodo.some(f => f.cuit_cliente === m.cuit);
+        } else {
+          yaFacturado = facturasDelPeriodo.some(f => Math.abs(f.total - m.monto) <= 2);
+        }
+      }
+      return { ...m, yaFacturado };
+    });
+
+    const chinos = todasConEstado.filter(m => m.esChino);
+    const yaFact = todasConEstado.filter(m => m.yaFacturado).length;
+
+    console.log(`✅ [Extracto] Total: ${todasConEstado.length} | Chinos: ${chinos.length} | Ya facturados: ${yaFact}`);
 
     return res.json({
       ok: true,
-      total: todas.length,
+      total: todasConEstado.length,
       detectados: chinos.length,
       transferencias: chinos,
-      todas: todas
+      todas: todasConEstado
     });
 
   } catch (err) {
@@ -3856,7 +3892,6 @@ app.post("/facturar-extracto", async (req, res) => {
             .eq("anio", anioTransf)
             .gte("total", montoConIva - 2)
             .lte("total", montoConIva + 2)
-            .ilike("condicion_venta", "%EXTRACTO%")
             .limit(1);
           if (dup && dup.length > 0) {
             console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
