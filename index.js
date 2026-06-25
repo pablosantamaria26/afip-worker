@@ -55,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-JOB-EXTRACTO";
+const APP_VERSION = "2026-06-JOB-PROCESAR";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3476,87 +3476,54 @@ function parseSantanderPdfText(text) {
   return movimientos;
 }
 
-// ── POST /procesar-extracto ─────────────────────────────────────
-// Soporta XLSX (parseo directo, sin Gemini) + PDF/imagen (Gemini).
-// Para XLSX de Banco Provincia: extrae fecha, nombre, monto y CUIT
-// directamente desde la columna Descripción sin depender de IA.
-app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
+// ── Store de jobs de análisis de extracto ─────────────────────
+const jobsProcesar = new Map();
+
+async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) {
+  const job    = jobsProcesar.get(jobId);
+  const isXlsx = origName.endsWith(".xlsx") || origName.endsWith(".xls") ||
+                 mimeType.includes("spreadsheet") || mimeType.includes("excel");
+  const isPdf  = mimeType === "application/pdf" || origName.endsWith(".pdf");
+
+  let movimientos = [];
   try {
-    if (!req.file) return res.status(400).json({ ok: false, message: "No se recibió archivo" });
-
-    const filePath    = req.file.path;
-    const mimeType    = req.file.mimetype;
-    const origName    = (req.file.originalname || "").toLowerCase();
-    const isXlsx      = origName.endsWith(".xlsx") || origName.endsWith(".xls") ||
-                        mimeType.includes("spreadsheet") || mimeType.includes("excel");
-    const isPdf       = mimeType === "application/pdf" || origName.endsWith(".pdf");
-
-    let movimientos = [];
-
     if (isXlsx) {
-      // ── Parseo directo XLSX (Banco Provincia y similares) ────────
-      // Formato: Fecha | Sucursal | Descripción | Referencia | Caja de Ahorro | CC | Saldo
-      // CUIT siempre al final de Descripción: "De [nombre] / ... /[CUIT]"
       const wb   = XLSX.readFile(filePath);
       const sh   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
-
-      // Encontrar la fila de encabezado (contiene "Fecha" y "Descripción")
       let dataStart = 0;
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i].map(c => String(c).toLowerCase());
-        if (row.some(c => c.includes("fecha")) && row.some(c => c.includes("descripci"))) {
-          dataStart = i + 1;
-          break;
-        }
+        if (row.some(c => c.includes("fecha")) && row.some(c => c.includes("descripci"))) { dataStart = i + 1; break; }
       }
-
       for (let i = dataStart; i < rows.length; i++) {
-        const r    = rows[i];
+        const r = rows[i];
         const desc = String(r[3] || "");
-        // Solo transferencias recibidas con monto positivo
         const descLow = desc.toLowerCase();
         if (!descLow.includes("transf") || !descLow.includes("recibid")) continue;
-
-        // Monto: columna Caja de Ahorro (idx 5)
-        // Santander exporta con punto decimal estilo americano ("146645.00"), sin separador de miles.
-        // Banco Provincia usa formato argentino ("1.234,56") con coma decimal.
-        // → Si tiene coma: formato argentino (quitar puntos, reemplazar coma por punto).
-        // → Si no tiene coma: formato americano, parseFloat directo.
-        const cellVal  = String(r[5] || "0").trim();
-        const monto    = cellVal.includes(",")
+        const cellVal = String(r[5] || "0").trim();
+        const monto   = cellVal.includes(",")
           ? parseFloat(cellVal.replace(/\./g, "").replace(",", "."))
           : parseFloat(cellVal);
         if (!monto || monto <= 0) continue;
-
-        // Fecha: columna 1, formato DD/MM/YYYY → YYYY-MM-DD
         const fechaRaw = String(r[1] || "");
         let fecha = "";
         const fm = fechaRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
         if (fm) fecha = `${fm[3]}-${fm[2]}-${fm[1]}`;
-
-        // Nombre: después de "De " hasta el primer " /"
         let nombre = "";
         const nm = desc.match(/\bde\s+(.+?)\s*\//i);
         if (nm) nombre = nm[1].trim().replace(/\s+/g, " ");
-
-        // CUIT: último token de solo dígitos al final de la descripción
         let cuit = null;
         const cm = desc.match(/\/\s*(\d{10,11})\s*$/);
         if (cm) cuit = cm[1];
-
         movimientos.push({ fecha, nombre, monto, descripcion: desc, cuit });
       }
-
       console.log(`✅ [Extracto XLSX] Movimientos entrantes: ${movimientos.length}`);
 
     } else if (isPdf) {
-      // ── PDF: intento parseo directo (Santander) → fallback Gemini ──
       const fileBuffer = fs.readFileSync(filePath);
       let textoPdf = "";
       try { const p = await pdfParse(fileBuffer); textoPdf = p.text || ""; } catch {}
-
-      // 1° intento: parser estructurado sin tokens
       if (textoPdf.trim().length > 50) {
         const directResult = parseSantanderPdfText(textoPdf);
         if (directResult.length > 0) {
@@ -3564,12 +3531,10 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
           console.log(`✅ [Extracto PDF directo] Movimientos encontrados: ${movimientos.length}`);
         }
       }
-
-      // 2° fallback: Gemini (solo si el parser directo no encontró nada)
       if (movimientos.length === 0) {
-        if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
+        if (!geminiModel) throw new Error("IA no configurada (GEMINI_API_KEY)");
         const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
-
+        console.log(`ℹ️ [Extracto PDF] Enviando a Gemini...`);
         let result;
         if (textoPdf.trim().length > 50) {
           result = await geminiModel.generateContent(`${PROMPT}\n\nEXTRACTO BANCARIO:\n${textoPdf}`);
@@ -3584,87 +3549,118 @@ app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
       }
 
     } else {
-      // ── Imagen (JPG, PNG, WEBP) → Gemini ────────────────────────
-      if (!geminiModel) { try { fs.unlinkSync(filePath); } catch {} return res.status(503).json({ ok: false, message: "IA no configurada (GEMINI_API_KEY)" }); }
+      if (!geminiModel) throw new Error("IA no configurada (GEMINI_API_KEY)");
       const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO.\n\nPara cada movimiento:\n- fecha: YYYY-MM-DD\n- nombre: nombre del remitente\n- monto: número positivo\n- descripcion: descripción\n- cuit: CUIT si aparece (null si no)\n\nIgnorá débitos. JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+      console.log(`ℹ️ [Extracto Imagen] Enviando a Gemini...`);
       const b64    = fs.readFileSync(filePath).toString("base64");
       const result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType } }]);
       const raw    = result.response.text().trim().replace(/```json|```/gi, "").trim();
       const parsed = JSON.parse(raw);
       movimientos  = Array.isArray(parsed.movimientos) ? parsed.movimientos : [];
     }
-
-    // Limpiar archivo temporal
+  } finally {
     try { fs.unlinkSync(filePath); } catch {}
+  }
 
-    // Normalizar y filtrar chinos
-    const todas = movimientos.map(m => ({
-      fecha:       String(m.fecha || ""),
-      nombre:      String(m.nombre || ""),
-      monto:       (() => {
-        const raw = String(m.monto || "0").trim();
-        // Formato argentino "1.234,56": tiene coma → quitar puntos de miles, coma→punto
-        // Formato estándar  "1234.56": sin coma → el punto YA es decimal, parseFloat directo
-        if (raw.includes(",")) return Math.abs(parseFloat(raw.replace(/\./g, "").replace(",", ".")) || 0);
-        return Math.abs(parseFloat(raw) || 0);
-      })(),
-      descripcion: String(m.descripcion || ""),
-      cuit:        m.cuit ? onlyDigits(String(m.cuit)) : null,
-      esChino:     detectarNombreChino(m.nombre)
-    })).filter(m => m.monto > 0);
+  const todas = movimientos.map(m => ({
+    fecha:       String(m.fecha || ""),
+    nombre:      String(m.nombre || ""),
+    monto:       (() => {
+      const raw = String(m.monto || "0").trim();
+      if (raw.includes(",")) return Math.abs(parseFloat(raw.replace(/\./g, "").replace(",", ".")) || 0);
+      return Math.abs(parseFloat(raw) || 0);
+    })(),
+    descripcion: String(m.descripcion || ""),
+    cuit:        m.cuit ? onlyDigits(String(m.cuit)) : null,
+    esChino:     detectarNombreChino(m.nombre)
+  })).filter(m => m.monto > 0);
 
-    // ── Cruce con facturas del periodo actual ──────────────────────
-    // Una sola query a Supabase por el mes/año actual; luego cruce en memoria.
-    // - CUIT presente → ya facturado si existe alguna factura del mismo CUIT en el periodo.
-    // - CUIT ausente  → ya facturado si existe factura con monto ±$2 en el periodo.
-    let facturasDelPeriodo = [];
-    if (supabase) {
-      const ahora      = new Date();
-      const mesActual  = ahora.getMonth() + 1;
-      const anioActual = ahora.getFullYear();
-      try {
-        const { data: fac } = await supabase
-          .from("facturas")
-          .select("cuit_cliente, total")
-          .eq("mes",  mesActual)
-          .eq("anio", anioActual)
-          .gt("total", 0);
-        if (fac) facturasDelPeriodo = fac;
-        console.log(`ℹ️ [Extracto] Facturas en periodo ${mesActual}/${anioActual}: ${facturasDelPeriodo.length}`);
-      } catch (e) {
-        console.warn("⚠️ [Extracto] No se pudo cargar facturas del periodo:", e?.message);
+  let facturasDelPeriodo = [];
+  if (supabase) {
+    const ahora = new Date();
+    const mesActual  = ahora.getMonth() + 1;
+    const anioActual = ahora.getFullYear();
+    try {
+      const { data: fac } = await supabase
+        .from("facturas")
+        .select("cuit_cliente, total")
+        .eq("mes",  mesActual)
+        .eq("anio", anioActual)
+        .gt("total", 0);
+      if (fac) facturasDelPeriodo = fac;
+      console.log(`ℹ️ [Extracto] Facturas en periodo ${mesActual}/${anioActual}: ${facturasDelPeriodo.length}`);
+    } catch (e) {
+      console.warn("⚠️ [Extracto] No se pudo cargar facturas del periodo:", e?.message);
+    }
+  }
+
+  const todasConEstado = todas.map(m => {
+    let yaFacturado = false;
+    if (facturasDelPeriodo.length > 0) {
+      if (m.cuit && m.cuit.length === 11) {
+        yaFacturado = facturasDelPeriodo.some(f => f.cuit_cliente === m.cuit);
+      } else {
+        yaFacturado = facturasDelPeriodo.some(f => Math.abs(f.total - m.monto) <= 2);
       }
     }
+    return { ...m, yaFacturado };
+  });
 
-    const todasConEstado = todas.map(m => {
-      let yaFacturado = false;
-      if (facturasDelPeriodo.length > 0) {
-        if (m.cuit && m.cuit.length === 11) {
-          yaFacturado = facturasDelPeriodo.some(f => f.cuit_cliente === m.cuit);
-        } else {
-          yaFacturado = facturasDelPeriodo.some(f => Math.abs(f.total - m.monto) <= 2);
-        }
-      }
-      return { ...m, yaFacturado };
-    });
+  const chinos = todasConEstado.filter(m => m.esChino);
+  const yaFact = todasConEstado.filter(m => m.yaFacturado).length;
+  console.log(`✅ [Extracto] Total: ${todasConEstado.length} | Chinos: ${chinos.length} | Ya facturados: ${yaFact}`);
 
-    const chinos = todasConEstado.filter(m => m.esChino);
-    const yaFact = todasConEstado.filter(m => m.yaFacturado).length;
+  job.estado        = "terminado";
+  job.ok            = true;
+  job.total         = todasConEstado.length;
+  job.detectados    = chinos.length;
+  job.transferencias = chinos;
+  job.todas         = todasConEstado;
+}
 
-    console.log(`✅ [Extracto] Total: ${todasConEstado.length} | Chinos: ${chinos.length} | Ya facturados: ${yaFact}`);
+// ── POST /procesar-extracto ─────────────────────────────────────
+// Soporta XLSX (parseo directo) + PDF/imagen (Gemini).
+// Devuelve jobId inmediatamente; el análisis corre en background.
+// El celu puede guardarse — usar GET /estado-procesar/:jobId para el resultado.
+app.post("/procesar-extracto", upload.single("extracto"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, message: "No se recibió archivo" });
 
-    return res.json({
-      ok: true,
-      total: todasConEstado.length,
-      detectados: chinos.length,
-      transferencias: chinos,
-      todas: todasConEstado
+    const jobId = `proc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    jobsProcesar.set(jobId, { jobId, estado: "procesando", inicio: new Date().toISOString() });
+
+    res.json({ ok: true, jobId, estado: "procesando" });
+
+    procesarExtractoArchivo(jobId, {
+      filePath: req.file.path,
+      mimeType: req.file.mimetype,
+      origName: (req.file.originalname || "").toLowerCase()
+    }).catch(e => {
+      const job = jobsProcesar.get(jobId);
+      if (job) { job.estado = "error"; job.errorMsg = e?.message; }
+      console.error("❌ [Job Procesar] Error:", e?.message);
+      try { fs.unlinkSync(req.file.path); } catch {}
     });
 
   } catch (err) {
     console.error("❌ [/procesar-extracto]", err?.message || err);
-    return res.status(500).json({ ok: false, message: err?.message || "Error al procesar extracto" });
+    if (!res.headersSent) res.status(500).json({ ok: false, message: err?.message || "Error al procesar extracto" });
   }
+});
+
+// ── GET /estado-procesar/:jobId ─────────────────────────────────
+app.get("/estado-procesar/:jobId", (req, res) => {
+  const job = jobsProcesar.get(req.params.jobId);
+  if (!job) return res.status(404).json({ ok: false, message: "Job no encontrado" });
+  if (job.estado === "terminado") {
+    return res.json({ ok: true, jobId: job.jobId, estado: "terminado",
+      total: job.total, detectados: job.detectados,
+      transferencias: job.transferencias, todas: job.todas });
+  }
+  if (job.estado === "error") {
+    return res.json({ ok: false, jobId: job.jobId, estado: "error", message: job.errorMsg });
+  }
+  res.json({ ok: true, jobId: job.jobId, estado: "procesando" });
 });
 
 // ── generarReporteExtracto ────────────────────────────────────────
