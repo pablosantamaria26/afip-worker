@@ -55,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-JOB-PROCESAR";
+const APP_VERSION = "2026-06-REPORTE-MES";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3672,7 +3672,32 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     wb.creator = "Mercado Limpio";
     wb.created = new Date();
 
-    // ── Sheet 1: Facturas emitidas ──────────────────────────────
+    // ── Cargar TODAS las facturas del mes desde Supabase ───────────
+    const mesFecha  = Number(fecha.slice(5, 7));
+    const anioFecha = Number(fecha.slice(0, 4));
+    let todasFacturasMes = [];
+    if (supabase) {
+      try {
+        const { data: fAll } = await supabase
+          .from("facturas")
+          .select("comprobante, cuit_cliente, nombre_cliente, total, cae, pdf_url, condicion_venta")
+          .eq("mes",  mesFecha)
+          .eq("anio", anioFecha)
+          .gt("total", 0)
+          .order("nro_factura", { ascending: true });
+        if (fAll) todasFacturasMes = fAll;
+      } catch (e) { console.warn("[Reporte] Error cargando facturas del mes:", e?.message); }
+    }
+    // Fallback: si Supabase falló, usar los resultados de esta corrida
+    if (todasFacturasMes.length === 0) {
+      todasFacturasMes = resultados.filter(r => r.ok && !r.skipped).map(r => ({
+        comprobante: r.comprobante, cuit_cliente: r.cuit,
+        nombre_cliente: r.nombre, total: r.total, cae: r.cae, pdf_url: r.pdfUrl
+      }));
+    }
+    const totalMesCompleto = todasFacturasMes.reduce((s, f) => s + Number(f.total || 0), 0);
+
+    // ── Sheet 1: Facturas emitidas (mes completo) ───────────────
     const wsF = wb.addWorksheet("Facturas Emitidas");
     wsF.columns = [
       { header: "Comprobante", key: "comprobante", width: 20 },
@@ -3682,32 +3707,23 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       { header: "CAE",         key: "cae",         width: 18 },
       { header: "PDF",         key: "pdf",         width: 50 },
     ];
-    // Encabezado con fondo oscuro
     wsF.getRow(1).eachCell(cell => {
       cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
       cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
       cell.border = { bottom: { style: "thin", color: { argb: "FF334155" } } };
       cell.alignment = { vertical: "middle", horizontal: "center" };
     });
-    resultados.filter(r => r.ok).forEach(r => {
-      const row = wsF.addRow({
-        comprobante: r.comprobante,
-        cuit: r.cuit,
-        nombre: r.nombre,
-        total: r.total,
-        cae: r.cae || (r.skipped ? "(ya existía)" : ""),
-        pdf: r.pdfUrl || ""
+    todasFacturasMes.forEach(f => {
+      wsF.addRow({
+        comprobante: f.comprobante,
+        cuit:   f.cuit_cliente,
+        nombre: f.nombre_cliente,
+        total:  f.total,
+        cae:    f.cae || "",
+        pdf:    f.pdf_url || ""
       });
-      // Filas "ya existía" (dedup): fondo gris claro para distinguirlas
-      if (r.skipped) {
-        row.eachCell(cell => {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
-          cell.font = { italic: true, color: { argb: "FF888888" } };
-        });
-      }
     });
-    // Fila de total (solo facturas nuevas, no skipped)
-    const totalRow = wsF.addRow({ comprobante: "TOTAL EMITIDO", cuit: "", nombre: "", total: totalFacturado, cae: "", pdf: "" });
+    const totalRow = wsF.addRow({ comprobante: "TOTAL MES", cuit: "", nombre: "", total: totalMesCompleto, cae: "", pdf: "" });
     totalRow.getCell("comprobante").font = { bold: true };
     totalRow.getCell("total").font = { bold: true };
     totalRow.getCell("total").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2F0D9" } };
@@ -3763,25 +3779,8 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       cell.alignment = { vertical: "middle", horizontal: "center" };
     });
 
-    // Construir set de facturadas para matcheo: consultamos Supabase por el mes
-    // completo para capturar también facturas de corridas anteriores (no solo este batch).
-    // Fallback: usar resultados del batch actual si Supabase no responde.
-    let facturasDelMes = resultados.filter(r => r.ok).map(r => ({ cuit: r.cuit, total: r.total }));
-    if (supabase) {
-      try {
-        const mes  = Number(fecha.slice(5, 7));
-        const anio = Number(fecha.slice(0, 4));
-        const { data: dbF } = await supabase
-          .from("facturas")
-          .select("cuit_cliente, total")
-          .eq("mes", mes).eq("anio", anio)
-          .gt("total", 0)
-          .ilike("condicion_venta", "%EXTRACTO%");
-        if (dbF && dbF.length > 0) {
-          facturasDelMes = dbF.map(f => ({ cuit: f.cuit_cliente, total: f.total }));
-        }
-      } catch (e) { console.warn("[Reporte] No se pudo consultar facturas del mes:", e?.message); }
-    }
+    // Construir set de facturadas para coloreo del extracto — usar las ya cargadas del mes completo
+    const facturasDelMes = todasFacturasMes.map(f => ({ cuit: f.cuit_cliente, total: f.total }));
     function estaFacturada(t) {
       const montoConIva = round2(t.monto * 1.21);
       const cuitT = onlyDigits(String(t.cuit || ""));
@@ -3815,14 +3814,15 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
       to: emailReporte,
       reply_to: GMAIL_USER,
-      subject: `📊 Conciliación ${mesNombre} — ${resultados.filter(r => r.ok).length} facturas · $${formatMoneyAR(totalFacturado)}`,
+      subject: `📊 Conciliación ${mesNombre} — ${todasFacturasMes.length} facturas · $${formatMoneyAR(totalMesCompleto)}`,
       html: `<p style="font-family:sans-serif;color:#1a1a1a;">
         <strong>Reporte de conciliación bancaria</strong><br>
         Adjunto encontrás el Excel con:<br>
-        &nbsp;📄 Sheet 1 — Facturas emitidas (${resultados.filter(r => r.ok).length})<br>
+        &nbsp;📄 Sheet 1 — Facturas emitidas del mes (${todasFacturasMes.length})<br>
         &nbsp;🔵 Sheet 2 — Notas de Crédito del mes<br>
         &nbsp;🟢 Sheet 3 — Extracto bancario (filas verdes = facturadas)<br>
-        <br>Total facturado: <strong>$${formatMoneyAR(totalFacturado)}</strong><br>
+        <br>Total del mes: <strong>$${formatMoneyAR(totalMesCompleto)}</strong><br>
+        Emitidas en esta corrida: ${resultados.filter(r => r.ok && !r.skipped).length} · $${formatMoneyAR(totalFacturado)}<br>
         Fecha: ${fecha}
       </p>`,
       attachments: [{
