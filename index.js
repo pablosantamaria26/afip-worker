@@ -55,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-06-CRUCE-EXTRACTO";
+const APP_VERSION = "2026-06-JOB-EXTRACTO";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3841,10 +3841,190 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
   }
 }
 
+// ── Store de jobs de extracto (in-memory + Supabase Storage al terminar) ──
+const jobsExtracto = new Map();
+
+async function persistirJobExtracto(jobId, estado) {
+  if (!supabase) return;
+  try {
+    const buf = Buffer.from(JSON.stringify(estado));
+    await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(`jobs/extracto_${jobId}.json`, buf, { contentType: "application/json", upsert: true });
+  } catch (e) {
+    console.warn("⚠️ [Job] No se pudo persistir en Storage:", e?.message);
+  }
+}
+
+async function cargarJobExtracto(jobId) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .download(`jobs/extracto_${jobId}.json`);
+    if (error || !data) return null;
+    return JSON.parse(await data.text());
+  } catch { return null; }
+}
+
+async function procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv }) {
+  const job = jobsExtracto.get(jobId);
+
+  for (const t of transferencias) {
+    const cuitCliente = onlyDigits(String(t.cuit || ""));
+    const monto       = Math.abs(Number(t.monto || 0));
+    const nombre      = String(t.nombre || "Cliente");
+    const fechaTransf = String(t.fecha || fecha);
+
+    if (cuitCliente.length !== 11 || monto <= 0) {
+      job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
+      job.errores++;
+      job.progreso++;
+      continue;
+    }
+
+    // Deduplicación: evitar doble facturación
+    if (supabase) {
+      try {
+        const montoConIva = round2(monto * 1.21);
+        const partesFecha = fechaTransf.split("-").map(Number);
+        const mesTransf   = partesFecha[1] || (new Date().getMonth() + 1);
+        const anioTransf  = partesFecha[0] || new Date().getFullYear();
+        const { data: dup } = await supabase
+          .from("facturas")
+          .select("comprobante, total")
+          .eq("cuit_cliente", cuitCliente)
+          .eq("mes",  mesTransf)
+          .eq("anio", anioTransf)
+          .gte("total", montoConIva - 2)
+          .lte("total", montoConIva + 2)
+          .limit(1);
+        if (dup && dup.length > 0) {
+          console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
+          job.resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: dup[0].total, pdfUrl: "" });
+          job.progreso++;
+          continue;
+        }
+      } catch (dupErr) {
+        console.warn("⚠️ [Extracto] No se pudo verificar duplicado:", dupErr?.message);
+      }
+    }
+
+    try {
+      const items    = buildItemsParaMonto(monto);
+      const impTotal = round2(items.reduce((a, x) => a + Number(x.subtotalConIva || 0), 0));
+      const impNeto  = round2(impTotal / 1.21);
+      const impIVA   = round2(impTotal - impNeto);
+      const rec      = await getReceptorDesdePadron(cuitCliente);
+
+      let nro, afipResult;
+      for (let intento = 0; intento <= 2; intento++) {
+        nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+        const vd = {
+          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+          DocTipo: 80, DocNro: Number(cuitCliente),
+          CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
+          ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
+          ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
+          MonId: "PES", MonCotiz: 1,
+          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+        };
+        try {
+          afipResult = await afip.ElectronicBilling.createVoucher(vd);
+          break;
+        } catch (afipErr) {
+          const msg = String(afipErr?.message || "");
+          if (intento < 2 && msg.includes("10016")) {
+            console.warn(`⚠️ [AFIP] 10016 intento ${intento + 1}/2 para CUIT ${cuitCliente}, reintentando...`);
+            await new Promise(r => setTimeout(r, 800));
+            continue;
+          }
+          throw afipErr;
+        }
+      }
+
+      const qrPayload = {
+        ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+        tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+        moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
+        tipoCodAut: "E", codAut: Number(afipResult.CAE)
+      };
+      const qrDataUrl = await QRCode.toDataURL(
+        `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+        { margin: 0, width: 170 }
+      );
+
+      const itemsCalc = items.map(it => ({
+        ...it,
+        subtotalNeto: round2(Number(it.subtotalConIva) / 1.21),
+        precioNeto:   round2((Number(it.subtotalConIva) / 1.21) / it.cantidad)
+      }));
+
+      const htmlPDF = buildFacturaHtml({
+        receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
+        fechaISO: fecha, pv, nro, items: itemsCalc,
+        neto: impNeto, iva: impIVA, total: impTotal,
+        cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
+        condicionVenta, qrDataUrl, isPreview: false
+      });
+
+      let pdfPublicUrl = "";
+      try {
+        const pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        console.log(`✅ [PDF] Extracto ${pad(pv,5)}-${pad(nro,8)}: ${pdfBuffer.length} bytes`);
+      } catch (pdfErr) {
+        console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
+      }
+
+      const comprobante = `M-${pad(pv, 5)}-${pad(nro, 8)}`;
+
+      await guardarComprobanteGeneralEnDB({
+        comprobante, cbteTipo: CBTE_TIPO_REAL,
+        cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
+        nro, pv, cae: afipResult.CAE, impTotal,
+        pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
+        fecha, items, emailAEnviar: DEFAULT_EMAIL
+      });
+
+      job.totalFacturado = round2(job.totalFacturado + impTotal);
+      job.resultados.push({
+        ok: true, nombre: rec.nombre, cuit: cuitCliente,
+        comprobante, cae: afipResult.CAE, total: impTotal, pdfUrl: pdfPublicUrl
+      });
+      job.progreso++;
+      console.log(`✅ [Extracto] Factura emitida: ${comprobante} | CUIT ${cuitCliente} | $${impTotal}`);
+
+    } catch (err) {
+      console.error(`❌ [Extracto] Error en CUIT ${cuitCliente}:`, err?.message);
+      job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: err?.message || "Error AFIP" });
+      job.errores++;
+      job.progreso++;
+    }
+  }
+
+  job.estado = "terminado";
+  job.fin    = new Date().toISOString();
+  const emitidas = job.resultados.filter(r => r.ok && !r.skipped).length;
+  const omitidas = job.resultados.filter(r => r.skipped).length;
+  console.log(`✅ [Job ${jobId}] Terminado: ${emitidas} emitidas | ${omitidas} omitidas | $${job.totalFacturado} | ${job.errores} errores`);
+
+  // Persistir en Storage para que sobreviva reinicios del servidor
+  await persistirJobExtracto(jobId, job);
+
+  // Generar Excel de conciliación en background
+  generarReporteExtracto({
+    resultados: job.resultados,
+    todasTransferencias,
+    emailReporte,
+    fecha,
+    totalFacturado: job.totalFacturado
+  }).catch(e => console.error("⚠️ [Reporte] Error inesperado:", e?.message));
+}
+
 // ── POST /facturar-extracto ─────────────────────────────────────
-// Recibe array de transferencias y emite una factura por cada una.
-// Genera items automáticamente con buildItemsParaMonto (60% Make / 40% otros).
-// Devuelve resumen consolidado y envía email.
+// Inicia el job en background y devuelve jobId inmediatamente.
+// El celu puede guardarse: usar GET /estado-extracto/:jobId para ver progreso.
 app.post("/facturar-extracto", async (req, res) => {
   try {
     const transferencias = Array.isArray(req.body.transferencias) ? req.body.transferencias : [];
@@ -3853,226 +4033,63 @@ app.post("/facturar-extracto", async (req, res) => {
     const todasTransferencias = Array.isArray(req.body.todasTransferencias) ? req.body.todasTransferencias : [];
     const condicionVenta = String(req.body.condicionVenta || "Transferencia Bancaria");
     const emailReporte   = String(req.body.emailReporte || "santamariapablodaniel@gmail.com");
-    const fecha = todayISO();
+    const fecha   = todayISO();
     const cbteFch = yyyymmdd(fecha);
-    const pv = await getPtoVentaSeguro();
+    const pv      = await getPtoVentaSeguro();
 
-    const resultados = [];
-    let totalFacturado = 0;
-    let errores = 0;
-
-    for (const t of transferencias) {
-      const cuitCliente = onlyDigits(String(t.cuit || ""));
-      const monto = Math.abs(Number(t.monto || 0));
-      const nombre = String(t.nombre || "Cliente");
-      const fechaTransf = String(t.fecha || fecha); // fecha del extracto (YYYY-MM-DD)
-
-      if (cuitCliente.length !== 11 || monto <= 0) {
-        resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
-        errores++;
-        continue;
-      }
-
-      // ── Deduplicación: evitar doble facturación si el mismo extracto
-      //    se envía dos veces o si ya se facturó esta transferencia.
-      //    IMPORTANTE: usamos mes+año de la transferencia (no fecha exacta),
-      //    porque la factura se graba con la fecha de procesamiento (hoy),
-      //    no con la fecha de la transferencia bancaria.
-      if (supabase) {
-        try {
-          const montoConIva = round2(monto * 1.21);
-          const partesFecha = fechaTransf.split("-").map(Number);
-          const mesTransf  = partesFecha[1] || (new Date().getMonth() + 1);
-          const anioTransf = partesFecha[0] || new Date().getFullYear();
-          const { data: dup } = await supabase
-            .from("facturas")
-            .select("comprobante, total")
-            .eq("cuit_cliente", cuitCliente)
-            .eq("mes",  mesTransf)
-            .eq("anio", anioTransf)
-            .gte("total", montoConIva - 2)
-            .lte("total", montoConIva + 2)
-            .limit(1);
-          if (dup && dup.length > 0) {
-            console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
-            // Guardamos el total REAL de la DB (con IVA) para que el reporte lo pinte verde correctamente
-            resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: dup[0].total, pdfUrl: "" });
-            continue;
-          }
-        } catch (dupErr) {
-          console.warn("⚠️ [Extracto] No se pudo verificar duplicado en Supabase:", dupErr?.message);
-        }
-      }
-
-      try {
-        const items = buildItemsParaMonto(monto);
-
-        // Calcular importes fiscales
-        const impTotal = round2(items.reduce((a, x) => a + Number(x.subtotalConIva || 0), 0));
-        const impNeto  = round2(impTotal / 1.21);
-        const impIVA   = round2(impTotal - impNeto);
-
-        const rec = await getReceptorDesdePadron(cuitCliente);
-
-        // ── Obtener número de comprobante con retry ante error 10016 ──
-        // AFIP a veces devuelve número desactualizado; si la creación falla
-        // con 10016, se re-consulta el número real y se reintenta (hasta 2x).
-        let nro, afipResult;
-        for (let intento = 0; intento <= 2; intento++) {
-          nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
-          const vd = {
-            CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
-            DocTipo: 80, DocNro: Number(cuitCliente),
-            CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
-            ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
-            ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
-            MonId: "PES", MonCotiz: 1,
-            Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
-          };
-          try {
-            afipResult = await afip.ElectronicBilling.createVoucher(vd);
-            break; // éxito → salir del loop
-          } catch (afipErr) {
-            const msg = String(afipErr?.message || "");
-            if (intento < 2 && msg.includes("10016")) {
-              console.warn(`⚠️ [AFIP] 10016 intento ${intento + 1}/2 para CUIT ${cuitCliente}, reintentando...`);
-              await new Promise(r => setTimeout(r, 800)); // esperar que AFIP actualice el contador
-              continue;
-            }
-            throw afipErr; // re-lanzar si no es 10016 o se agotaron reintentos
-          }
-        }
-
-        const qrPayload = {
-          ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
-          tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
-          moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
-          tipoCodAut: "E", codAut: Number(afipResult.CAE)
-        };
-        const qrDataUrl = await QRCode.toDataURL(
-          `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-          { margin: 0, width: 170 }
-        );
-
-        const itemsCalc = items.map(it => ({
-          ...it,
-          subtotalNeto: round2(Number(it.subtotalConIva) / 1.21),
-          precioNeto: round2((Number(it.subtotalConIva) / 1.21) / it.cantidad)
-        }));
-
-        const htmlPDF = buildFacturaHtml({
-          receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
-          fechaISO: fecha, pv, nro, items: itemsCalc,
-          neto: impNeto, iva: impIVA, total: impTotal,
-          cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
-          condicionVenta, qrDataUrl, isPreview: false
-        });
-
-        let pdfBuffer = null;
-        let pdfPublicUrl = "";
-        try {
-          pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-          pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-          console.log(`✅ [PDF] Extracto ${pad(pv,5)}-${pad(nro,8)}: ${pdfBuffer.length} bytes`);
-        } catch (pdfErr) {
-          console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
-        }
-
-        const comprobante = `M-${pad(pv, 5)}-${pad(nro, 8)}`;
-
-        await guardarComprobanteGeneralEnDB({
-          comprobante, cbteTipo: CBTE_TIPO_REAL,
-          cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
-          nro, pv, cae: afipResult.CAE, impTotal,
-          pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
-          fecha, items, emailAEnviar: DEFAULT_EMAIL
-        });
-
-        totalFacturado = round2(totalFacturado + impTotal);
-        resultados.push({
-          ok: true, nombre: rec.nombre, cuit: cuitCliente,
-          comprobante, cae: afipResult.CAE, total: impTotal, pdfUrl: pdfPublicUrl
-        });
-        console.log(`✅ [Extracto] Factura emitida: ${comprobante} | CUIT ${cuitCliente} | $${impTotal}`);
-
-      } catch (err) {
-        console.error(`❌ [Extracto] Error en CUIT ${cuitCliente}:`, err?.message);
-        resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: err?.message || "Error AFIP" });
-        errores++;
-      }
-    }
-
-    // ── Enviar email con resumen consolidado ─────────────────────
-    const ok_results = resultados.filter(r => r.ok);
-    const htmlReporte = `
-      <div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;color:#1a1a1a;">
-        <div style="background:#0f172a;padding:28px 24px;border-radius:12px 12px 0 0;text-align:center;">
-          <h1 style="color:#fff;margin:0;font-size:22px;">Mercado Limpio</h1>
-          <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Reporte de Facturación — Extracto Bancario</p>
-        </div>
-        <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-top:none;">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;">
-            <div style="background:#fff;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;">
-              <div style="font-size:28px;font-weight:900;color:#1C1C1E;">${ok_results.length}</div>
-              <div style="font-size:11px;color:#8E8E93;font-weight:700;text-transform:uppercase;margin-top:4px;">Facturas</div>
-            </div>
-            <div style="background:linear-gradient(135deg,#34C759,#248A3D);border-radius:10px;padding:16px;text-align:center;">
-              <div style="font-size:18px;font-weight:900;color:#fff;">$${formatMoneyAR(totalFacturado)}</div>
-              <div style="font-size:11px;color:rgba(255,255,255,0.8);font-weight:700;text-transform:uppercase;margin-top:4px;">Total</div>
-            </div>
-            <div style="background:#fff;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;">
-              <div style="font-size:28px;font-weight:900;color:${errores > 0 ? "#FF3B30" : "#34C759"};">${errores}</div>
-              <div style="font-size:11px;color:#8E8E93;font-weight:700;text-transform:uppercase;margin-top:4px;">Errores</div>
-            </div>
-          </div>
-          <h3 style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 12px;">Detalle de comprobantes</h3>
-          ${ok_results.map(r => `
-            <div style="background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="font-weight:800;font-size:14px;">${safeText(r.nombre)}</div>
-                <div style="font-size:12px;color:#64748b;margin-top:2px;">CUIT: ${r.cuit} · ${r.comprobante}</div>
-                <div style="font-size:11px;color:#94a3b8;font-family:monospace;margin-top:1px;">CAE: ${r.cae}</div>
-              </div>
-              <div style="font-weight:900;font-size:15px;color:#1C1C1E;text-align:right;">
-                $${formatMoneyAR(r.total)}
-                ${r.pdfUrl ? `<br><a href="${r.pdfUrl}" style="font-size:11px;color:#007AFF;font-weight:600;">PDF ↗</a>` : ""}
-              </div>
-            </div>`).join("")}
-          ${errores > 0 ? `
-            <div style="margin-top:16px;padding:12px 16px;background:#FFF1F0;border-radius:10px;border:1px solid #FFD6D2;">
-              <strong style="color:#FF3B30;font-size:13px;">Transferencias con error (${errores}):</strong>
-              ${resultados.filter(r => !r.ok).map(r => `<div style="font-size:12px;color:#64748b;margin-top:6px;">
-                ${safeText(r.nombre)} · CUIT: ${r.cuit} · $${formatMoneyAR(r.monto)} — ${safeText(r.error)}
-              </div>`).join("")}
-            </div>` : ""}
-          <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:24px;">
-            Fecha de procesamiento: ${fecha} · Mercado Limpio Distribuidora
-          </p>
-        </div>
-      </div>`;
-
-    // ── Responder al cliente YA (el Excel se genera en background) ──
-    res.json({
-      ok: true,
-      totalFacturado,
-      facturasEmitidas: ok_results.length,
-      errores,
-      resultados
+    const jobId = `ext_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    jobsExtracto.set(jobId, {
+      jobId, estado: "procesando",
+      progreso: 0, total: transferencias.length,
+      totalFacturado: 0, errores: 0,
+      resultados: [],
+      inicio: new Date().toISOString()
     });
 
-    // ── Generar y enviar Excel de conciliación en background ─────
-    generarReporteExtracto({
-      resultados,
-      todasTransferencias,
-      emailReporte,
-      fecha,
-      totalFacturado
-    }).catch(e => console.error("⚠️ [Reporte] Error inesperado:", e?.message));
+    // Responder inmediatamente — el servidor sigue procesando aunque el celu se apague
+    res.json({ ok: true, jobId, estado: "procesando", total: transferencias.length });
+
+    procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv })
+      .catch(e => {
+        const job = jobsExtracto.get(jobId);
+        if (job) { job.estado = "error"; job.errorMsg = e?.message; }
+        console.error("❌ [Job Extracto] Error fatal:", e?.message);
+      });
 
   } catch (err) {
     console.error("❌ [/facturar-extracto]", err?.message || err);
-    return res.status(500).json({ ok: false, message: err?.message || "Error al facturar extracto" });
+    if (!res.headersSent) res.status(500).json({ ok: false, message: err?.message || "Error al facturar extracto" });
   }
+});
+
+// ── GET /estado-extracto/:jobId ─────────────────────────────────
+// Polling endpoint: devuelve progreso y resultados del job.
+// Si el servidor reinició, intenta recuperar el job desde Supabase Storage.
+app.get("/estado-extracto/:jobId", async (req, res) => {
+  const { jobId } = req.params;
+  let job = jobsExtracto.get(jobId);
+  if (!job) {
+    job = await cargarJobExtracto(jobId);
+    if (job) jobsExtracto.set(jobId, job);
+  }
+  if (!job) return res.status(404).json({ ok: false, message: "Job no encontrado. El servidor pudo haberse reiniciado antes de completar." });
+  const emitidas = job.resultados.filter(r => r.ok && !r.skipped).length;
+  const omitidas = job.resultados.filter(r => r.skipped).length;
+  res.json({
+    ok: true,
+    jobId: job.jobId,
+    estado: job.estado,
+    progreso: job.progreso,
+    total: job.total,
+    porcentaje: job.total > 0 ? Math.round((job.progreso / job.total) * 100) : 0,
+    totalFacturado: job.totalFacturado,
+    facturasEmitidas: emitidas,
+    omitidas,
+    errores: job.errores,
+    inicio: job.inicio,
+    fin: job.fin || null,
+    resultados: job.estado === "terminado" ? job.resultados : []
+  });
 });
 
 // ================================================================
