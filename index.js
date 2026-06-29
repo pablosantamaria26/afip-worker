@@ -2588,7 +2588,7 @@ async function enviarResumenMensual(anioForzar, mesForzar, toForzar) {
   const subject   = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
   const toAddress = toForzar || (process.env.RESEND_API_KEY ? "santamariapablodaniel@gmail.com" : "distribuidoramercadolimpio@gmail.com");
   if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
-  const { error: resumenError } = await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
+  const { error: resumenError } = await resendClient.emails.send({ from: "Mercado Limpio <ventas@mercadolimpio.ar>", to: toAddress, subject, html: htmlMail });
   if (resumenError) throw new Error(`Resend error: ${resumenError.message || JSON.stringify(resumenError)}`);
   console.log(`✅ [Resumen] Enviado vía Resend a ${toAddress}`);
 }
@@ -2646,7 +2646,7 @@ app.post("/enviar-resumen", async (req, res) => {
     for (const to of destinatarios) {
       try {
         const { error } = await resendClient.emails.send({
-          from: "Mercado Limpio <onboarding@resend.dev>",
+          from: "Mercado Limpio <ventas@mercadolimpio.ar>",
           to, subject, html: htmlMail
         });
         if (error) throw new Error(error.message || JSON.stringify(error));
