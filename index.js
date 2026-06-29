@@ -2327,7 +2327,7 @@ app.get("/historial", async (req, res) => {
     const anio = Number(req.query.anio) || new Date().getFullYear();
     const q    = String(req.query.q || "").trim();
     const page  = Math.max(1, Number(req.query.page)  || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
     const from  = (page - 1) * limit;
 
     let query = supabase
