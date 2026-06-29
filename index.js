@@ -2575,7 +2575,7 @@ function buildResumenHTMLProfesional(anio, mes, facturas) {
 </div></body></html>`;
 }
 
-async function enviarResumenMensual(anioForzar, mesForzar) {
+async function enviarResumenMensual(anioForzar, mesForzar, toForzar) {
   const hoy  = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const anio = anioForzar || (hoy.getUTCMonth() === 0 ? hoy.getUTCFullYear() - 1 : hoy.getUTCFullYear());
   const mes  = mesForzar  || (hoy.getUTCMonth() === 0 ? 12 : hoy.getUTCMonth());
@@ -2584,9 +2584,9 @@ async function enviarResumenMensual(anioForzar, mesForzar) {
   const totalGeneral = facturas.reduce((a, f) => a + Number(f.total || 0), 0);
   const fmtAR        = n => new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
   console.log(`📊 [Resumen] ${MESES[mes]} ${anio}: ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`);
-  const htmlMail = buildResumenHTMLProfesional(anio, mes, facturas);
-  const subject  = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
-  const toAddress = process.env.RESEND_API_KEY ? "santamariapablodaniel@gmail.com" : "distribuidoramercadolimpio@gmail.com";
+  const htmlMail  = buildResumenHTMLProfesional(anio, mes, facturas);
+  const subject   = `📊 Resumen ${MESES[mes]} ${anio} — ${facturas.length} facturas | $ ${fmtAR(totalGeneral)}`;
+  const toAddress = toForzar || (process.env.RESEND_API_KEY ? "santamariapablodaniel@gmail.com" : "distribuidoramercadolimpio@gmail.com");
   if (!resendClient) throw new Error("Resend no configurado — revisar RESEND_API_KEY en variables de entorno");
   const { error: resumenError } = await resendClient.emails.send({ from: "Mercado Limpio <onboarding@resend.dev>", to: toAddress, subject, html: htmlMail });
   if (resumenError) throw new Error(`Resend error: ${resumenError.message || JSON.stringify(resumenError)}`);
@@ -2612,8 +2612,11 @@ console.log("🗓️  [Cron] Resumen mensual activado → 1° de cada mes a las 
 app.get("/admin/test-resumen", async (req, res) => {
   if (req.query.token !== "mercadolimpio") return res.status(401).send("No autorizado.");
   try {
-    await enviarResumenMensual(req.query.anio ? Number(req.query.anio) : null, req.query.mes ? Number(req.query.mes) : null);
-    res.send("✅ Resumen enviado");
+    const anio = req.query.anio ? Number(req.query.anio) : null;
+    const mes  = req.query.mes  ? Number(req.query.mes)  : null;
+    const to   = req.query.to   ? String(req.query.to)   : null;
+    await enviarResumenMensual(anio, mes, to);
+    res.send("✅ Resumen enviado" + (to ? ` a ${to}` : ""));
   } catch (e) { res.status(500).send("❌ Error: " + (e?.message || e)); }
 });
 
