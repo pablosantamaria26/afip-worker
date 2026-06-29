@@ -3714,30 +3714,40 @@ app.get("/estado-procesar/:jobId", (req, res) => {
 
 // ── generarReporteExtracto ────────────────────────────────────────
 // Genera y envía el Excel de conciliación del extracto mensual.
-// Sheet 1: Facturas emitidas, Sheet 2: NCs del mes, Sheet 3: Extracto con verde en las facturadas.
 async function generarReporteExtracto({ resultados, todasTransferencias, emailReporte, fecha, totalFacturado }) {
   try {
     const wb = new ExcelJS.Workbook();
     wb.creator = "Mercado Limpio";
     wb.created = new Date();
 
-    // ── Cargar TODAS las facturas del mes desde Supabase ───────────
     const mesFecha  = Number(fecha.slice(5, 7));
     const anioFecha = Number(fecha.slice(0, 4));
+    const mesNombre = new Date(fecha + "T12:00:00").toLocaleString("es-AR", { month: "long", year: "numeric" });
+    const mesNombreCap = mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1);
+
+    // ── Cargar datos desde Supabase ────────────────────────────
     let todasFacturasMes = [];
+    let ncsDelMes = [];
     if (supabase) {
       try {
         const { data: fAll } = await supabase
           .from("facturas")
-          .select("comprobante, cuit_cliente, nombre_cliente, total, cae, pdf_url, condicion_venta")
-          .eq("mes",  mesFecha)
-          .eq("anio", anioFecha)
+          .select("comprobante, cuit_cliente, nombre_cliente, total, cae, pdf_url")
+          .eq("mes", mesFecha).eq("anio", anioFecha)
           .gt("total", 0)
           .order("nro_factura", { ascending: true });
         if (fAll) todasFacturasMes = fAll;
-      } catch (e) { console.warn("[Reporte] Error cargando facturas del mes:", e?.message); }
+      } catch (e) { console.warn("[Reporte] Error cargando facturas:", e?.message); }
+      try {
+        const { data: ncs } = await supabase
+          .from("facturas")
+          .select("comprobante, cuit_cliente, nombre_cliente, total, fecha")
+          .eq("mes", mesFecha).eq("anio", anioFecha)
+          .lt("total", 0)
+          .order("fecha", { ascending: true });
+        if (ncs) ncsDelMes = ncs;
+      } catch (e) { console.warn("[Reporte] Error cargando NCs:", e?.message); }
     }
-    // Fallback: si Supabase falló, usar los resultados de esta corrida
     if (todasFacturasMes.length === 0) {
       todasFacturasMes = resultados.filter(r => r.ok && !r.skipped).map(r => ({
         comprobante: r.comprobante, cuit_cliente: r.cuit,
@@ -3746,89 +3756,222 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     }
     const totalMesCompleto = todasFacturasMes.reduce((s, f) => s + Number(f.total || 0), 0);
 
-    // ── Sheet 1: Facturas emitidas (mes completo) ───────────────
-    const wsF = wb.addWorksheet("Facturas Emitidas");
-    wsF.columns = [
-      { header: "Comprobante", key: "comprobante", width: 20 },
-      { header: "CUIT",        key: "cuit",        width: 16 },
-      { header: "Nombre",      key: "nombre",      width: 32 },
-      { header: "Total ($)",   key: "total",       width: 16 },
-      { header: "CAE",         key: "cae",         width: 18 },
-      { header: "PDF",         key: "pdf",         width: 50 },
-    ];
-    wsF.getRow(1).eachCell(cell => {
-      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
-      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
-      cell.border = { bottom: { style: "thin", color: { argb: "FF334155" } } };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
-    });
-    todasFacturasMes.forEach(f => {
-      wsF.addRow({
-        comprobante: f.comprobante,
-        cuit:   f.cuit_cliente,
-        nombre: f.nombre_cliente,
-        total:  f.total,
-        cae:    f.cae || "",
-        pdf:    f.pdf_url || ""
-      });
-    });
-    const totalRow = wsF.addRow({ comprobante: "TOTAL MES", cuit: "", nombre: "", total: totalMesCompleto, cae: "", pdf: "" });
-    totalRow.getCell("comprobante").font = { bold: true };
-    totalRow.getCell("total").font = { bold: true };
-    totalRow.getCell("total").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2F0D9" } };
+    // ── Paleta y helpers ────────────────────────────────────────
+    const C = {
+      navy:      { argb: "FF1E3A5F" },
+      navyDark:  { argb: "FF142A47" },
+      amber:     { argb: "FFC97A3A" },
+      white:     { argb: "FFFFFFFF" },
+      textDark:  { argb: "FF1A2530" },
+      textMuted: { argb: "FF8BA4BC" },
+      rowAlt:    { argb: "FFF4F7FA" },
+      grnBg:     { argb: "FFC6EFCE" },
+      grnFg:     { argb: "FF375623" },
+      grnTotal:  { argb: "FFE2F0D9" },
+      grnTotalFg:{ argb: "FF1F4E2B" },
+      grayBg:    { argb: "FFF3F3F3" },
+      grayFg:    { argb: "FF888888" },
+      blueBg:    { argb: "FFDCE6F1" },
+      blueFg:    { argb: "FF17375E" },
+      hairLine:  { argb: "FFD8E3EE" },
+      amberLine: { argb: "FFC97A3A" },
+    };
 
-    // ── Sheet 2: NCs del mes ────────────────────────────────────
-    const wsNC = wb.addWorksheet("Notas de Crédito");
-    wsNC.columns = [
-      { header: "Comprobante", key: "comprobante", width: 20 },
-      { header: "CUIT",        key: "cuit",        width: 16 },
-      { header: "Nombre",      key: "nombre",      width: 32 },
-      { header: "Total ($)",   key: "total",       width: 16 },
-      { header: "Fecha",       key: "fecha",       width: 14 },
-    ];
-    wsNC.getRow(1).eachCell(cell => {
-      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
-      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+    function applyTitle(ws, numCols, text) {
+      ws.getRow(1).height = 44;
+      ws.mergeCells(1, 1, 1, numCols);
+      const cell = ws.getCell(1, 1);
+      cell.value = text;
+      cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.navy };
+      cell.font  = { bold: true, size: 15, color: C.white, name: "Calibri" };
       cell.alignment = { vertical: "middle", horizontal: "center" };
-    });
-    if (supabase) {
-      try {
-        const mes = fecha.slice(5, 7);   // "05"
-        const anio = fecha.slice(0, 4);  // "2026"
-        const { data: ncs } = await supabase
-          .from("facturas")
-          .select("comprobante, cuit_cliente, nro_factura, total, fecha")
-          .eq("mes", mes).eq("anio", anio)
-          .lt("total", 0)
-          .order("fecha", { ascending: true });
-        (ncs || []).forEach(nc => {
-          wsNC.addRow({
-            comprobante: nc.comprobante || "",
-            cuit:  nc.cuit_cliente || "",
-            nombre: "",
-            total: Math.abs(nc.total),
-            fecha: nc.fecha || ""
-          });
-        });
-      } catch (e) { console.warn("[Reporte] Error cargando NCs:", e?.message); }
     }
 
-    // ── Sheet 3: Extracto bancario con coloreo ──────────────────
-    const wsE = wb.addWorksheet("Extracto Bancario");
-    wsE.columns = [
-      { header: "Fecha",       key: "fecha",       width: 14 },
-      { header: "Nombre",      key: "nombre",      width: 32 },
-      { header: "CUIT",        key: "cuit",        width: 16 },
-      { header: "Monto ($)",   key: "monto",       width: 16 },
-      { header: "Estado",      key: "estado",      width: 20 },
+    function applyKPIBand(ws, numCols, kpis) {
+      // kpis: array of { label, value } — split evenly across numCols
+      const perKPI = Math.floor(numCols / kpis.length);
+      ws.getRow(2).height = 12;
+      ws.getRow(3).height = 36;
+      ws.getRow(4).height = 5;
+      kpis.forEach((kpi, idx) => {
+        const c1 = idx * perKPI + 1;
+        const c2 = idx === kpis.length - 1 ? numCols : (idx + 1) * perKPI;
+        // label row
+        ws.mergeCells(2, c1, 2, c2);
+        const lc = ws.getCell(2, c1);
+        lc.value = kpi.label;
+        lc.fill  = { type: "pattern", pattern: "solid", fgColor: C.navyDark };
+        lc.font  = { size: 7, bold: true, color: C.textMuted, name: "Calibri" };
+        lc.alignment = { vertical: "bottom", horizontal: "center" };
+        // value row
+        ws.mergeCells(3, c1, 3, c2);
+        const vc = ws.getCell(3, c1);
+        vc.value = kpi.value;
+        vc.fill  = { type: "pattern", pattern: "solid", fgColor: C.navyDark };
+        vc.font  = { bold: true, size: 17, color: C.white, name: "Calibri" };
+        vc.alignment = { vertical: "middle", horizontal: "center" };
+        // amber accent row
+        ws.mergeCells(4, c1, 4, c2);
+        const ac = ws.getCell(4, c1);
+        ac.fill = { type: "pattern", pattern: "solid", fgColor: C.amber };
+        // vertical divider between KPIs via right border on last KPI cell
+      });
+      // Row 5: thin spacer
+      ws.getRow(5).height = 6;
+      ws.mergeCells(5, 1, 5, numCols);
+      ws.getCell(5, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F4F8" } };
+    }
+
+    function applyColHeaders(ws, row, headers) {
+      ws.getRow(row).height = 26;
+      headers.forEach((h, i) => {
+        const cell = ws.getCell(row, i + 1);
+        cell.value = h;
+        cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.navy };
+        cell.font  = { bold: true, color: C.white, size: 10, name: "Calibri" };
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: false };
+        cell.border = { bottom: { style: "medium", color: C.amber } };
+      });
+    }
+
+    function applyDataCell(cell, value, isAlt, opts = {}) {
+      cell.value = value;
+      cell.fill  = { type: "pattern", pattern: "solid", fgColor: isAlt ? C.rowAlt : C.white };
+      cell.font  = { size: 10, name: "Calibri", color: C.textDark, ...(opts.bold ? { bold: true } : {}) };
+      cell.alignment = { vertical: "middle", horizontal: opts.align || "center", wrapText: false };
+      cell.border = { bottom: { style: "hair", color: C.hairLine } };
+      if (opts.numFmt) cell.numFmt = opts.numFmt;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // HOJA 1: FACTURAS EMITIDAS
+    // ══════════════════════════════════════════════════════════════
+    const wsF = wb.addWorksheet("Facturas Emitidas");
+    wsF.properties.tabColor = C.navy;
+    wsF.properties.defaultRowHeight = 17;
+    wsF.columns = [
+      { key: "comprobante", width: 22 },
+      { key: "cuit",        width: 16 },
+      { key: "nombre",      width: 36 },
+      { key: "total",       width: 18 },
+      { key: "cae",         width: 20 },
+      { key: "pdf",         width: 54 },
     ];
-    wsE.getRow(1).eachCell(cell => {
-      cell.fill   = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
-      cell.font   = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
+
+    const clientesUnicos = new Set(todasFacturasMes.map(f => f.cuit_cliente).filter(Boolean)).size;
+    const promedio = todasFacturasMes.length > 0 ? round2(totalMesCompleto / todasFacturasMes.length) : 0;
+
+    applyTitle(wsF, 6, `MERCADO LIMPIO  ·  Conciliación Bancaria  ·  ${mesNombreCap}`);
+    applyKPIBand(wsF, 6, [
+      { label: "FACTURAS EMITIDAS", value: String(todasFacturasMes.length) },
+      { label: "TOTAL DEL MES",     value: `$${formatMoneyAR(totalMesCompleto)}` },
+      { label: "CLIENTES ÚNICOS",   value: String(clientesUnicos) },
+    ]);
+    applyColHeaders(wsF, 6, ["Comprobante", "CUIT", "Cliente", "Total ($)", "CAE", "Enlace PDF"]);
+
+    const DATA_START_F = 7;
+    todasFacturasMes.forEach((f, idx) => {
+      const rn = DATA_START_F + idx;
+      wsF.getRow(rn).height = 17;
+      const alt = idx % 2 === 1;
+      applyDataCell(wsF.getCell(rn, 1), f.comprobante || "",        alt, { align: "center" });
+      applyDataCell(wsF.getCell(rn, 2), f.cuit_cliente || "",       alt, { align: "center" });
+      applyDataCell(wsF.getCell(rn, 3), f.nombre_cliente || "",     alt, { align: "left" });
+      applyDataCell(wsF.getCell(rn, 4), Number(f.total || 0),       alt, { align: "right", numFmt: "#,##0.00" });
+      applyDataCell(wsF.getCell(rn, 5), f.cae || "",                alt, { align: "center" });
+      applyDataCell(wsF.getCell(rn, 6), f.pdf_url || "",            alt, { align: "left" });
     });
 
-    // Construir set de facturadas para coloreo del extracto — usar las ya cargadas del mes completo
+    // Fila total
+    const totalFRowNum = DATA_START_F + todasFacturasMes.length;
+    wsF.getRow(totalFRowNum).height = 24;
+    ["TOTAL DEL MES", "", "", totalMesCompleto, "", ""].forEach((val, i) => {
+      const cell = wsF.getCell(totalFRowNum, i + 1);
+      cell.value = val;
+      cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnTotal };
+      cell.font  = { bold: true, size: 11, name: "Calibri", color: C.grnTotalFg };
+      cell.alignment = { vertical: "middle", horizontal: i === 0 ? "left" : i === 3 ? "right" : "center" };
+      cell.border = { top: { style: "medium", color: C.grnFg }, bottom: { style: "medium", color: C.grnFg } };
+      if (i === 3) cell.numFmt = "#,##0.00";
+    });
+
+    wsF.views = [{ state: "frozen", ySplit: 6, xSplit: 0, showGridLines: false }];
+    wsF.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6, column: 6 } };
+
+    // ══════════════════════════════════════════════════════════════
+    // HOJA 2: NOTAS DE CRÉDITO
+    // ══════════════════════════════════════════════════════════════
+    const wsNC = wb.addWorksheet("Notas de Crédito");
+    wsNC.properties.tabColor = C.blueFg;
+    wsNC.properties.defaultRowHeight = 17;
+    wsNC.columns = [
+      { key: "comprobante", width: 22 },
+      { key: "cuit",        width: 16 },
+      { key: "nombre",      width: 36 },
+      { key: "total",       width: 18 },
+      { key: "fecha",       width: 14 },
+    ];
+
+    const totalNCs = ncsDelMes.reduce((s, nc) => s + Math.abs(Number(nc.total || 0)), 0);
+    applyTitle(wsNC, 5, `NOTAS DE CRÉDITO  ·  ${mesNombreCap}`);
+    applyKPIBand(wsNC, 5, [
+      { label: "NOTAS DE CRÉDITO", value: String(ncsDelMes.length) },
+      { label: "IMPORTE TOTAL NCs", value: `$${formatMoneyAR(totalNCs)}` },
+    ]);
+    applyColHeaders(wsNC, 6, ["Comprobante", "CUIT", "Cliente", "Importe ($)", "Fecha"]);
+
+    const DATA_START_NC = 7;
+    ncsDelMes.forEach((nc, idx) => {
+      const rn = DATA_START_NC + idx;
+      wsNC.getRow(rn).height = 17;
+      const alt = idx % 2 === 1;
+      applyDataCell(wsNC.getCell(rn, 1), nc.comprobante || "",      alt, { align: "center" });
+      applyDataCell(wsNC.getCell(rn, 2), nc.cuit_cliente || "",     alt, { align: "center" });
+      applyDataCell(wsNC.getCell(rn, 3), nc.nombre_cliente || "",   alt, { align: "left" });
+      applyDataCell(wsNC.getCell(rn, 4), Math.abs(Number(nc.total || 0)), alt, { align: "right", numFmt: "#,##0.00" });
+      applyDataCell(wsNC.getCell(rn, 5), nc.fecha || "",            alt, { align: "center" });
+    });
+
+    if (ncsDelMes.length === 0) {
+      const emptyRn = DATA_START_NC;
+      wsNC.getRow(emptyRn).height = 30;
+      wsNC.mergeCells(emptyRn, 1, emptyRn, 5);
+      const ec = wsNC.getCell(emptyRn, 1);
+      ec.value = "Sin notas de crédito en el período";
+      ec.font  = { italic: true, color: C.grayFg, size: 10, name: "Calibri" };
+      ec.alignment = { vertical: "middle", horizontal: "center" };
+      ec.fill  = { type: "pattern", pattern: "solid", fgColor: C.grayBg };
+    } else {
+      const ncTotalRn = DATA_START_NC + ncsDelMes.length;
+      wsNC.getRow(ncTotalRn).height = 24;
+      ["TOTAL", "", "", totalNCs, ""].forEach((val, i) => {
+        const cell = wsNC.getCell(ncTotalRn, i + 1);
+        cell.value = val;
+        cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.blueBg };
+        cell.font  = { bold: true, size: 11, name: "Calibri", color: C.blueFg };
+        cell.alignment = { vertical: "middle", horizontal: i === 3 ? "right" : i === 0 ? "left" : "center" };
+        cell.border = { top: { style: "medium", color: C.blueFg }, bottom: { style: "medium", color: C.blueFg } };
+        if (i === 3) cell.numFmt = "#,##0.00";
+      });
+    }
+
+    wsNC.views = [{ state: "frozen", ySplit: 6, xSplit: 0, showGridLines: false }];
+    wsNC.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6, column: 5 } };
+
+    // ══════════════════════════════════════════════════════════════
+    // HOJA 3: EXTRACTO BANCARIO
+    // ══════════════════════════════════════════════════════════════
+    const wsE = wb.addWorksheet("Extracto Bancario");
+    wsE.properties.tabColor = C.grnFg;
+    wsE.properties.defaultRowHeight = 17;
+    wsE.columns = [
+      { key: "fecha",  width: 14 },
+      { key: "nombre", width: 36 },
+      { key: "cuit",   width: 16 },
+      { key: "monto",  width: 18 },
+      { key: "estado", width: 22 },
+    ];
+
     const facturasDelMes = todasFacturasMes.map(f => ({ cuit: f.cuit_cliente, total: f.total }));
     function estaFacturada(t) {
       const montoConIva = round2(t.monto * 1.21);
@@ -3836,46 +3979,146 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       return facturasDelMes.some(f => f.cuit === cuitT && Math.abs(f.total - montoConIva) <= 2);
     }
 
-    (todasTransferencias || []).forEach(t => {
-      const facturada = estaFacturada(t);
-      const row = wsE.addRow({
-        fecha:  t.fecha  || "",
-        nombre: t.nombre || "",
-        cuit:   t.cuit   || "",
-        monto:  t.monto  || 0,
-        estado: facturada ? "✅ Facturada" : ""
-      });
-      if (facturada) {
-        row.eachCell(cell => {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC6EFCE" } }; // verde Excel
-          cell.font = { color: { argb: "FF375623" } };
+    const transferencias = todasTransferencias || [];
+    const facturadas  = transferencias.filter(t => estaFacturada(t));
+    const sinFacturar = transferencias.filter(t => !estaFacturada(t));
+    const totalTransf   = transferencias.reduce((s, t) => s + Number(t.monto || 0), 0);
+    const totalFacturadas = facturadas.reduce((s, t) => s + Number(t.monto || 0), 0);
+    const pctCubierto = totalTransf > 0 ? Math.round((totalFacturadas / totalTransf) * 100) : 0;
+
+    applyTitle(wsE, 5, `EXTRACTO BANCARIO  ·  ${mesNombreCap}`);
+    applyKPIBand(wsE, 5, [
+      { label: "TRANSFERENCIAS", value: String(transferencias.length) },
+      { label: "FACTURADAS",     value: `${facturadas.length} (${pctCubierto}%)` },
+      { label: "SIN FACTURAR",   value: String(sinFacturar.length) },
+    ]);
+    applyColHeaders(wsE, 6, ["Fecha", "Nombre / Empresa", "CUIT", "Monto ($)", "Estado"]);
+
+    const DATA_START_E = 7;
+    transferencias.forEach((t, idx) => {
+      const rn   = DATA_START_E + idx;
+      const fact = estaFacturada(t);
+      wsE.getRow(rn).height = 17;
+      const alt = idx % 2 === 1;
+
+      if (fact) {
+        // Verde para facturadas
+        [t.fecha || "", t.nombre || "", t.cuit || "", t.monto || 0, "✅ Facturada"].forEach((val, i) => {
+          const cell = wsE.getCell(rn, i + 1);
+          cell.value = val;
+          cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnBg };
+          cell.font  = { size: 10, name: "Calibri", color: C.grnFg, bold: i === 4 };
+          cell.alignment = { vertical: "middle", horizontal: i === 1 || i === 4 ? "left" : "center", wrapText: false };
+          cell.border = { bottom: { style: "hair", color: C.hairLine } };
+          if (i === 3) cell.numFmt = "#,##0.00";
         });
+      } else {
+        applyDataCell(wsE.getCell(rn, 1), t.fecha  || "",  alt, { align: "center" });
+        applyDataCell(wsE.getCell(rn, 2), t.nombre || "",  alt, { align: "left" });
+        applyDataCell(wsE.getCell(rn, 3), t.cuit   || "",  alt, { align: "center" });
+        applyDataCell(wsE.getCell(rn, 4), t.monto  || 0,   alt, { align: "right", numFmt: "#,##0.00" });
+        applyDataCell(wsE.getCell(rn, 5), "⏳ Pendiente",  alt, { align: "left" });
       }
     });
 
+    // Fila resumen de totales al final
+    const summaryRn = DATA_START_E + transferencias.length + 1;
+    wsE.getRow(summaryRn - 1).height = 6; // spacer
+    wsE.getRow(summaryRn).height = 24;
+    [
+      ["", "TOTAL FACTURADO", "", totalFacturadas, ""],
+    ].forEach(([f, n, c, m, e], rowOff) => {
+      const rn2 = summaryRn + rowOff;
+      [f, n, c, m, e].forEach((val, i) => {
+        const cell = wsE.getCell(rn2, i + 1);
+        cell.value = val;
+        cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnTotal };
+        cell.font  = { bold: true, size: 11, name: "Calibri", color: C.grnTotalFg };
+        cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : i === 3 ? "right" : "center" };
+        cell.border = { top: { style: "medium", color: C.grnFg }, bottom: { style: "medium", color: C.grnFg } };
+        if (i === 3) cell.numFmt = "#,##0.00";
+      });
+    });
+
+    wsE.views = [{ state: "frozen", ySplit: 6, xSplit: 0, showGridLines: false }];
+    wsE.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6, column: 5 } };
+
     // ── Generar buffer y enviar por email ───────────────────────
     const xlsxBuffer = await wb.xlsx.writeBuffer();
-
     if (!resendClient) throw new Error("Resend no configurado");
 
-    const mesNombre = new Date(fecha + "T12:00:00").toLocaleString("es-AR", { month: "long", year: "numeric" });
+    const corrida = resultados.filter(r => r.ok && !r.skipped).length;
     const { error: rErr } = await resendClient.emails.send({
       from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
       to: emailReporte,
       reply_to: GMAIL_USER,
-      subject: `📊 Conciliación ${mesNombre} — ${todasFacturasMes.length} facturas · $${formatMoneyAR(totalMesCompleto)}`,
-      html: `<p style="font-family:sans-serif;color:#1a1a1a;">
-        <strong>Reporte de conciliación bancaria</strong><br>
-        Adjunto encontrás el Excel con:<br>
-        &nbsp;📄 Sheet 1 — Facturas emitidas del mes (${todasFacturasMes.length})<br>
-        &nbsp;🔵 Sheet 2 — Notas de Crédito del mes<br>
-        &nbsp;🟢 Sheet 3 — Extracto bancario (filas verdes = facturadas)<br>
-        <br>Total del mes: <strong>$${formatMoneyAR(totalMesCompleto)}</strong><br>
-        Emitidas en esta corrida: ${resultados.filter(r => r.ok && !r.skipped).length} · $${formatMoneyAR(totalFacturado)}<br>
-        Fecha: ${fecha}
-      </p>`,
+      subject: `📊 Conciliación ${mesNombreCap} — ${todasFacturasMes.length} facturas · $${formatMoneyAR(totalMesCompleto)}`,
+      html: `
+<div style="font-family:'Segoe UI',Arial,sans-serif;background:#f4f7fb;padding:32px 0;">
+  <div style="max-width:580px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+
+    <div style="background:#1E3A5F;padding:28px 32px 20px;">
+      <div style="font-size:11px;color:#8BA4BC;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Mercado Limpio</div>
+      <div style="font-size:22px;font-weight:700;color:#fff;">Reporte de Conciliación</div>
+      <div style="font-size:14px;color:#8BA4BC;margin-top:4px;">${mesNombreCap}</div>
+    </div>
+
+    <div style="display:flex;background:#142A47;">
+      <div style="flex:1;padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
+        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">FACTURAS</div>
+        <div style="font-size:24px;font-weight:700;color:#fff;">${todasFacturasMes.length}</div>
+      </div>
+      <div style="flex:1;padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
+        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">TOTAL DEL MES</div>
+        <div style="font-size:18px;font-weight:700;color:#fff;">$${formatMoneyAR(totalMesCompleto)}</div>
+      </div>
+      <div style="flex:1;padding:14px 0;text-align:center;">
+        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">ESTA CORRIDA</div>
+        <div style="font-size:24px;font-weight:700;color:#C97A3A;">${corrida}</div>
+      </div>
+    </div>
+    <div style="height:3px;background:#C97A3A;"></div>
+
+    <div style="padding:24px 32px;">
+      <p style="margin:0 0 16px;color:#4A6A8A;font-size:13px;">Adjunto encontrás el Excel con el detalle completo:</p>
+
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:10px 12px;background:#F0F4F8;border-radius:8px 8px 0 0;border-bottom:1px solid #D8E3EE;">
+            <span style="font-size:15px;">📄</span>
+            <strong style="color:#1E3A5F;margin-left:8px;">Facturas Emitidas</strong>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${todasFacturasMes.length} comprobantes · $${formatMoneyAR(totalMesCompleto)}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;background:#F0F4F8;border-bottom:1px solid #D8E3EE;">
+            <span style="font-size:15px;">🔵</span>
+            <strong style="color:#1E3A5F;margin-left:8px;">Notas de Crédito</strong>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${ncsDelMes.length} NC${ncsDelMes.length !== 1 ? "s" : ""}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;background:#F0F4F8;border-radius:0 0 8px 8px;">
+            <span style="font-size:15px;">🟢</span>
+            <strong style="color:#1E3A5F;margin-left:8px;">Extracto Bancario</strong>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${facturadas.length}/${transferencias.length} transferencias facturadas (${pctCubierto}%)</span>
+          </td>
+        </tr>
+      </table>
+
+      <div style="margin-top:20px;padding:14px 16px;background:#F0F4F8;border-left:3px solid #C97A3A;border-radius:0 6px 6px 0;">
+        <div style="font-size:11px;color:#6B8CAD;margin-bottom:2px;">Emitidas en esta corrida</div>
+        <div style="font-size:15px;font-weight:600;color:#1E3A5F;">${corrida} facturas · $${formatMoneyAR(totalFacturado)}</div>
+      </div>
+    </div>
+
+    <div style="padding:12px 32px 20px;color:#8BA4BC;font-size:11px;border-top:1px solid #E8EFF7;">
+      Generado el ${fecha} · Mercado Limpio
+    </div>
+  </div>
+</div>`,
       attachments: [{
-        filename: `Conciliacion_${fecha.replace(/-/g, "")}.xlsx`,
+        filename: `Conciliacion_${mesNombreCap.replace(/\s+/g, "_")}_${anioFecha}.xlsx`,
         content: Buffer.from(xlsxBuffer).toString("base64")
       }]
     });
