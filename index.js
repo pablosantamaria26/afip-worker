@@ -2620,6 +2620,52 @@ app.get("/admin/test-resumen", async (req, res) => {
   } catch (e) { res.status(500).send("❌ Error: " + (e?.message || e)); }
 });
 
+// ── POST /enviar-resumen ────────────────────────────────────────
+// Envía el resumen mensual desde la app a uno o más destinatarios.
+// Body: { mes, anio, destinatarios: ["email1@...", "email2@..."] }
+app.post("/enviar-resumen", async (req, res) => {
+  try {
+    if (!resendClient) return res.status(503).json({ ok: false, message: "Email no configurado en el servidor" });
+    const mes  = Number(req.body.mes)  || new Date().getMonth() + 1;
+    const anio = Number(req.body.anio) || new Date().getFullYear();
+    const destinatarios = (Array.isArray(req.body.destinatarios) ? req.body.destinatarios : [])
+      .map(e => String(e || "").trim())
+      .filter(e => e.includes("@") && e.includes("."))
+      .slice(0, 5);
+    if (destinatarios.length === 0)
+      return res.status(400).json({ ok: false, message: "Sin destinatarios válidos. Enviá al menos un email." });
+
+    const MESES_NOM = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const facturas     = await leerFacturasDelMes(anio, mes);
+    const totalGeneral = facturas.reduce((a, f) => a + Number(f.total || 0), 0);
+    const fmtAR        = n => new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
+    const htmlMail = buildResumenHTMLProfesional(anio, mes, facturas);
+    const subject  = `📊 Resumen ${MESES_NOM[mes]} ${anio} — ${facturas.length} comprobantes | $ ${fmtAR(totalGeneral)}`;
+
+    const resultados = [];
+    for (const to of destinatarios) {
+      try {
+        const { error } = await resendClient.emails.send({
+          from: "Mercado Limpio <onboarding@resend.dev>",
+          to, subject, html: htmlMail
+        });
+        if (error) throw new Error(error.message || JSON.stringify(error));
+        resultados.push({ email: to, ok: true });
+        console.log(`✅ [/enviar-resumen] Enviado a ${to}`);
+      } catch (emailErr) {
+        console.warn(`⚠️ [/enviar-resumen] Error enviando a ${to}:`, emailErr?.message);
+        resultados.push({ email: to, ok: false, error: emailErr?.message || "Error desconocido" });
+      }
+    }
+
+    const alguno = resultados.some(r => r.ok);
+    return res.json({ ok: alguno, resultados, mes, anio, facturas: facturas.length, monto: totalGeneral });
+  } catch (err) {
+    console.error("❌ [/enviar-resumen]", err?.message || err);
+    return res.status(500).json({ ok: false, message: err?.message || "Error al enviar resumen" });
+  }
+});
+
 // ================================================================
 // ✅ ANULACIÓN CON NOTA DE CRÉDITO ASOCIADA
 // ================================================================
@@ -3909,12 +3955,63 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       }
     }
 
+    // Dedup robusto: si AFIP lo autorizó pero Supabase falló, queda en afip_vouchers_pendientes
+    if (supabase) {
+      try {
+        const [anioT, mesT] = fechaTransf.split("-").map(Number);
+        const montoConIvaP  = round2(monto * 1.21);
+        const { data: pendiente } = await supabase
+          .from("afip_vouchers_pendientes")
+          .select("id, cae, nro_comprobante, punto_venta")
+          .eq("cuit_cliente", cuitCliente)
+          .eq("mes",  mesT  || (new Date().getMonth() + 1))
+          .eq("anio", anioT || new Date().getFullYear())
+          .gte("total", montoConIvaP - 2)
+          .lte("total", montoConIvaP + 2)
+          .in("estado", ["afip_ok", "completo"])
+          .limit(1);
+        if (pendiente && pendiente.length > 0) {
+          const p = pendiente[0];
+          const compPnd = `M-${pad(p.punto_venta || pv, 5)}-${pad(p.nro_comprobante || 0, 8)}`;
+          console.warn(`⚠️ [Extracto] OMITIDO (pendiente AFIP OK): CUIT ${cuitCliente} | CAE ${p.cae} | ${compPnd}`);
+          job.resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: compPnd, total: montoConIvaP, pdfUrl: "" });
+          job.progreso++;
+          continue;
+        }
+      } catch (pErr) {
+        console.warn("⚠️ [Extracto] No se pudo verificar pendientes:", pErr?.message);
+      }
+    }
+
     try {
       const items    = buildItemsParaMonto(monto);
       const impTotal = round2(items.reduce((a, x) => a + Number(x.subtotalConIva || 0), 0));
       const impNeto  = round2(impTotal / 1.21);
       const impIVA   = round2(impTotal - impNeto);
       const rec      = await getReceptorDesdePadron(cuitCliente);
+
+      // Registrar intención ANTES de llamar a AFIP: si createVoucher OK pero Supabase falla,
+      // el registro queda en 'afip_ok' y el dedup lo detecta en la próxima corrida.
+      let _pendienteId = null;
+      if (supabase) {
+        try {
+          const [anioT, mesT] = fechaTransf.split("-").map(Number);
+          const { data: ins } = await supabase
+            .from("afip_vouchers_pendientes")
+            .insert({
+              cuit_cliente: cuitCliente,
+              mes:  mesT  || (new Date().getMonth() + 1),
+              anio: anioT || new Date().getFullYear(),
+              total: round2(monto * 1.21),
+              estado: "iniciado",
+              cbte_tipo: CBTE_TIPO_REAL
+            })
+            .select("id").single();
+          if (ins) _pendienteId = ins.id;
+        } catch (insErr) {
+          console.warn("⚠️ [Pendiente] insert intent:", insErr?.message);
+        }
+      }
 
       let nro, afipResult;
       for (let intento = 0; intento <= 2; intento++) {
@@ -3940,6 +4037,14 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
           }
           throw afipErr;
         }
+      }
+
+      // AFIP autorizó — marcar como afip_ok para que el dedup lo detecte si Supabase falla abajo
+      if (supabase && _pendienteId) {
+        supabase.from("afip_vouchers_pendientes")
+          .update({ estado: "afip_ok", cae: String(afipResult.CAE), nro_comprobante: nro, punto_venta: pv, updated_at: new Date().toISOString() })
+          .eq("id", _pendienteId)
+          .then(() => {}).catch(e => console.warn("⚠️ [Pendiente] update afip_ok:", e?.message));
       }
 
       const qrPayload = {
@@ -3985,6 +4090,14 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
         fecha, items, emailAEnviar: DEFAULT_EMAIL
       });
+
+      // Guardado en Supabase OK — marcar pendiente como completo
+      if (supabase && _pendienteId) {
+        supabase.from("afip_vouchers_pendientes")
+          .update({ estado: "completo", updated_at: new Date().toISOString() })
+          .eq("id", _pendienteId)
+          .then(() => {}).catch(e => console.warn("⚠️ [Pendiente] update completo:", e?.message));
+      }
 
       job.totalFacturado = round2(job.totalFacturado + impTotal);
       job.resultados.push({
