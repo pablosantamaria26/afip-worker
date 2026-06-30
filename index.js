@@ -4064,20 +4064,22 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       <div style="font-size:14px;color:#8BA4BC;margin-top:4px;">${mesNombreCap}</div>
     </div>
 
-    <div style="display:flex;background:#142A47;">
-      <div style="flex:1;padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
-        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">FACTURAS</div>
-        <div style="font-size:24px;font-weight:700;color:#fff;">${todasFacturasMes.length}</div>
-      </div>
-      <div style="flex:1;padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
-        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">TOTAL DEL MES</div>
-        <div style="font-size:18px;font-weight:700;color:#fff;">$${formatMoneyAR(totalMesCompleto)}</div>
-      </div>
-      <div style="flex:1;padding:14px 0;text-align:center;">
-        <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">ESTA CORRIDA</div>
-        <div style="font-size:24px;font-weight:700;color:#C97A3A;">${corrida}</div>
-      </div>
-    </div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#142A47;">
+      <tr>
+        <td width="33%" style="padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
+          <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">FACTURAS</div>
+          <div style="font-size:24px;font-weight:700;color:#fff;">${todasFacturasMes.length}</div>
+        </td>
+        <td width="34%" style="padding:14px 0;text-align:center;border-right:1px solid #1E3A5F;">
+          <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">TOTAL DEL MES</div>
+          <div style="font-size:18px;font-weight:700;color:#fff;">$${formatMoneyAR(totalMesCompleto)}</div>
+        </td>
+        <td width="33%" style="padding:14px 0;text-align:center;">
+          <div style="font-size:10px;color:#8BA4BC;margin-bottom:4px;">ESTA CORRIDA</div>
+          <div style="font-size:24px;font-weight:700;color:#C97A3A;">${corrida}</div>
+        </td>
+      </tr>
+    </table>
     <div style="height:3px;background:#C97A3A;"></div>
 
     <div style="padding:24px 32px;">
