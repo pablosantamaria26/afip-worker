@@ -3401,7 +3401,8 @@ const APELLIDOS_CHINOS = new Set([
   "shao","niu","zeng","qin","gui","zhan","ling","jin","yue","pan",
   "lai","gong","gu","fu","huo","tian","bai","hou","yin","kong",
   "sheng","chai","zou","lv","mu","weng","xun","ren","ming","zuo",
-  "piao","bian","cui","chao","nong","duan","fu","lu","xue"
+  "piao","bian","cui","chao","nong","duan","fu","lu","xue",
+  "song","tan","liao","xia","mo","xiang","hong","ning"
 ]);
 
 function detectarNombreChino(nombre) {
