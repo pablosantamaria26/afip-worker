@@ -4413,7 +4413,9 @@ app.post("/facturar-extracto", async (req, res) => {
       });
 
   } catch (err) {
-    console.error("❌ [/facturar-extracto]", err?.message || err);
+    const status = err?.response?.status;
+    const body   = err?.response?.data;
+    console.error("❌ [/facturar-extracto]", err?.message || err, status ? `HTTP ${status}` : "", body ? JSON.stringify(body).slice(0, 300) : "");
     if (!res.headersSent) res.status(500).json({ ok: false, message: err?.message || "Error al facturar extracto" });
   }
 });
