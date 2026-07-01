@@ -4166,6 +4166,10 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const monto       = Math.abs(Number(t.monto || 0));
     const nombre      = String(t.nombre || "Cliente");
     const fechaTransf = String(t.fecha || fecha);
+    // AFIP permite max 5 días corridos hacia atrás para bienes (Concepto:1)
+    const diasAtraso  = Math.floor((new Date(fecha) - new Date(fechaTransf)) / 86400000);
+    const fechaFact   = (diasAtraso >= 0 && diasAtraso <= 5) ? fechaTransf : fecha;
+    if (diasAtraso > 5) console.warn(`⚠️ [Extracto] ${nombre}: fecha ${fechaTransf} tiene ${diasAtraso}d de atraso (máx 5) → facturando con fecha de hoy ${fecha}`);
 
     if (cuitCliente.length !== 11 || monto <= 0) {
       job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
@@ -4265,7 +4269,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         const vd = {
           CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
-          CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaTransf),
+          CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaFact),
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
@@ -4294,7 +4298,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       }
 
       const qrPayload = {
-        ver: 1, fecha: fechaTransf, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+        ver: 1, fecha: fechaFact, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
         tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
         moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
         tipoCodAut: "E", codAut: Number(afipResult.CAE)
@@ -4312,7 +4316,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
 
       const htmlPDF = buildFacturaHtml({
         receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
-        fechaISO: fechaTransf, pv, nro, items: itemsCalc,
+        fechaISO: fechaFact, pv, nro, items: itemsCalc,
         neto: impNeto, iva: impIVA, total: impTotal,
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
         condicionVenta, qrDataUrl, isPreview: false
@@ -4334,7 +4338,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
         nro, pv, cae: afipResult.CAE, impTotal,
         pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
-        fecha: fechaTransf, items, emailAEnviar: DEFAULT_EMAIL
+        fecha: fechaFact, items, emailAEnviar: DEFAULT_EMAIL
       });
 
       // Guardado en Supabase OK — marcar pendiente como completo
