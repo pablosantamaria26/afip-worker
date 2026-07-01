@@ -3627,18 +3627,21 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
 
   let facturasDelPeriodo = [];
   if (supabase) {
+    // Cargamos facturas del mes actual Y del mes anterior para detectar
+    // el caso de subir un extracto del mes pasado (ej: junio subido en julio)
     const ahora = new Date();
     const mesActual  = ahora.getMonth() + 1;
     const anioActual = ahora.getFullYear();
+    const mesPasado  = mesActual === 1 ? 12 : mesActual - 1;
+    const anioPasado = mesActual === 1 ? anioActual - 1 : anioActual;
     try {
       const { data: fac } = await supabase
         .from("facturas")
-        .select("cuit_cliente, total")
-        .eq("mes",  mesActual)
-        .eq("anio", anioActual)
+        .select("cuit_cliente, total, mes, anio")
+        .or(`and(mes.eq.${mesActual},anio.eq.${anioActual}),and(mes.eq.${mesPasado},anio.eq.${anioPasado})`)
         .gt("total", 0);
       if (fac) facturasDelPeriodo = fac;
-      console.log(`ℹ️ [Extracto] Facturas en periodo ${mesActual}/${anioActual}: ${facturasDelPeriodo.length}`);
+      console.log(`ℹ️ [Extracto] Facturas en periodo ${mesPasado}/${anioPasado} + ${mesActual}/${anioActual}: ${facturasDelPeriodo.length}`);
     } catch (e) {
       console.warn("⚠️ [Extracto] No se pudo cargar facturas del periodo:", e?.message);
     }
@@ -3647,10 +3650,21 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   const todasConEstado = todas.map(m => {
     let yaFacturado = false;
     if (facturasDelPeriodo.length > 0) {
+      // Comparar usando el mes/año de la transferencia para evitar falsos negativos
+      // al subir un extracto del mes pasado
+      const fechaT = m.fecha ? new Date(m.fecha) : null;
+      const mesT  = fechaT ? fechaT.getMonth() + 1 : null;
+      const anioT = fechaT ? fechaT.getFullYear() : null;
       if (m.cuit && m.cuit.length === 11) {
-        yaFacturado = facturasDelPeriodo.some(f => f.cuit_cliente === m.cuit);
+        yaFacturado = facturasDelPeriodo.some(f =>
+          f.cuit_cliente === m.cuit &&
+          (mesT == null || (Number(f.mes) === mesT && Number(f.anio) === anioT))
+        );
       } else {
-        yaFacturado = facturasDelPeriodo.some(f => Math.abs(f.total - m.monto) <= 2);
+        yaFacturado = facturasDelPeriodo.some(f =>
+          Math.abs(f.total - m.monto) <= 2 &&
+          (mesT == null || (Number(f.mes) === mesT && Number(f.anio) === anioT))
+        );
       }
     }
     return { ...m, yaFacturado };
