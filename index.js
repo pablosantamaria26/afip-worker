@@ -4265,7 +4265,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         const vd = {
           CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
-          CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
+          CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaTransf),
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
@@ -4294,7 +4294,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       }
 
       const qrPayload = {
-        ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
+        ver: 1, fecha: fechaTransf, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
         tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
         moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
         tipoCodAut: "E", codAut: Number(afipResult.CAE)
@@ -4312,7 +4312,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
 
       const htmlPDF = buildFacturaHtml({
         receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
-        fechaISO: fecha, pv, nro, items: itemsCalc,
+        fechaISO: fechaTransf, pv, nro, items: itemsCalc,
         neto: impNeto, iva: impIVA, total: impTotal,
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
         condicionVenta, qrDataUrl, isPreview: false
@@ -4334,7 +4334,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
         nro, pv, cae: afipResult.CAE, impTotal,
         pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
-        fecha, items, emailAEnviar: DEFAULT_EMAIL
+        fecha: fechaTransf, items, emailAEnviar: DEFAULT_EMAIL
       });
 
       // Guardado en Supabase OK — marcar pendiente como completo
