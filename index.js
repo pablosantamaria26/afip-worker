@@ -3566,7 +3566,8 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
         let cuit = null;
         const cm = desc.match(/\/\s*(\d{10,11})\s*$/);
         if (cm) cuit = cm[1];
-        movimientos.push({ fecha, nombre, monto, descripcion: desc, cuit });
+        const referencia = String(r[4] || "").trim();
+        movimientos.push({ fecha, nombre, monto, descripcion: desc, cuit, referencia });
       }
       console.log(`✅ [Extracto XLSX] Movimientos entrantes: ${movimientos.length}`);
 
@@ -4180,10 +4181,20 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const monto       = Math.abs(Number(t.monto || 0));
     const nombre      = String(t.nombre || "Cliente");
     const fechaTransf = String(t.fecha || fecha);
-    // AFIP permite max 5 días corridos hacia atrás para bienes (Concepto:1)
-    const diasAtraso  = Math.floor((new Date(fecha) - new Date(fechaTransf)) / 86400000);
-    const fechaFact   = (diasAtraso >= 0 && diasAtraso <= 5) ? fechaTransf : fecha;
-    if (diasAtraso > 5) console.warn(`⚠️ [Extracto] ${nombre}: fecha ${fechaTransf} tiene ${diasAtraso}d de atraso (máx 5) → facturando con fecha de hoy ${fecha}`);
+    const dtTransf  = new Date(fechaTransf);
+    const dtHoy     = new Date(fecha);
+    const mismoMes  = dtTransf.getMonth() === dtHoy.getMonth() && dtTransf.getFullYear() === dtHoy.getFullYear();
+    const diasAtraso = Math.floor((dtHoy - dtTransf) / 86400000);
+    // Mismo mes: AFIP permite cualquier fecha hacia atrás dentro del mes
+    // Mes vencido ≤5 días: usar fecha de transferencia
+    // Mes vencido >5 días: usar la última fecha permitida por AFIP (hoy - 5 días)
+    let fechaFact = fechaTransf;
+    if (!mismoMes && diasAtraso > 5) {
+      const d = new Date(fecha);
+      d.setDate(d.getDate() - 5);
+      fechaFact = d.toISOString().slice(0, 10);
+      console.warn(`⚠️ [Extracto] ${nombre}: transferencia ${fechaTransf} tiene ${diasAtraso}d de atraso (mes vencido, máx 5d corridos) → facturando con última fecha permitida ${fechaFact}`);
+    }
 
     if (cuitCliente.length !== 11 || monto <= 0) {
       job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
@@ -4328,12 +4339,18 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         precioNeto:   round2((Number(it.subtotalConIva) / 1.21) / it.cantidad)
       }));
 
+      const notaParaFactura = [
+        t.referencia ? `Ref. banco: ${t.referencia}` : "",
+        `Fecha transf.: ${fechaTransf.split("-").reverse().join("/")}`
+      ].filter(Boolean).join("  |  ");
+
       const htmlPDF = buildFacturaHtml({
         receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
         fechaISO: fechaFact, pv, nro, items: itemsCalc,
         neto: impNeto, iva: impIVA, total: impTotal,
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
-        condicionVenta, qrDataUrl, isPreview: false
+        condicionVenta, qrDataUrl, isPreview: false,
+        notaFactura: notaParaFactura
       });
 
       let pdfPublicUrl = "";
