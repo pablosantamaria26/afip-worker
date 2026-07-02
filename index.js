@@ -4186,11 +4186,16 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const dtHoy     = new Date(fecha);
     const mismoMes  = dtTransf.getMonth() === dtHoy.getMonth() && dtTransf.getFullYear() === dtHoy.getFullYear();
     const diasAtraso = Math.floor((dtHoy - dtTransf) / 86400000);
-    // Mismo mes: AFIP permite cualquier fecha hacia atrás dentro del mes
-    // Mes vencido ≤5 días: usar fecha de transferencia
-    // Mes vencido >5 días: usar la última fecha permitida por AFIP (hoy - 5 días)
+    // Lógica de fecha para CbteFch:
+    // - Mismo mes, transf antes de hoy: usar HOY para evitar regresión de fechas
+    //   (AFIP rechaza 10016 si CbteFch < último comprobante autorizado)
+    // - Mismo mes, transf hoy: usar fecha de transferencia
+    // - Mes vencido ≤5 días: usar fecha de transferencia (cae dentro del límite)
+    // - Mes vencido >5 días: usar hoy - 5 días (última fecha permitida por AFIP)
     let fechaFact = fechaTransf;
-    if (!mismoMes && diasAtraso > 5) {
+    if (mismoMes && fechaFact < fecha) {
+      fechaFact = fecha; // evita regresión: nunca ir hacia atrás respecto a hoy
+    } else if (!mismoMes && diasAtraso > 5) {
       const d = new Date(fecha);
       d.setDate(d.getDate() - 5);
       fechaFact = d.toISOString().slice(0, 10);
