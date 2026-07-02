@@ -4177,7 +4177,37 @@ async function cargarJobExtracto(jobId) {
 async function procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv }) {
   const job = jobsExtracto.get(jobId);
 
-  for (const t of transferencias) {
+  // Consultar la fecha de la última factura emitida para evitar regresión de
+  // fechas en AFIP (error 10016). AFIP exige que CbteFch no retroceda dentro
+  // de la misma secuencia de punto de venta + tipo de comprobante.
+  let pisoFecha = fecha; // mínimo: hoy
+  if (supabase) {
+    try {
+      const { data: ultFac } = await supabase
+        .from("facturas")
+        .select("fecha")
+        .eq("punto_venta", pv)
+        .order("nro_factura", { ascending: false })
+        .limit(1);
+      if (ultFac?.[0]?.fecha) {
+        const ultFechaStr = String(ultFac[0].fecha).slice(0, 10);
+        if (ultFechaStr > pisoFecha) pisoFecha = ultFechaStr;
+        console.log(`ℹ️ [Extracto] Última fecha factura en DB: ${ultFechaStr} → piso: ${pisoFecha}`);
+      }
+    } catch (e) {
+      console.warn("⚠️ [Extracto] No se pudo leer última fecha de factura:", e?.message);
+    }
+  }
+
+  // Ordenar por fecha de transferencia ascendente para procesar primero
+  // las más antiguas y así preservar fechas reales sin retroceder
+  const transferenciasOrdenadas = [...transferencias].sort((a, b) =>
+    String(a.fecha || "").localeCompare(String(b.fecha || ""))
+  );
+
+  let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
+
+  for (const t of transferenciasOrdenadas) {
     const cuitCliente = onlyDigits(String(t.cuit || ""));
     const monto       = Math.abs(Number(t.monto || 0));
     const nombre      = String(t.nombre || "Cliente");
@@ -4187,19 +4217,20 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const mismoMes  = dtTransf.getMonth() === dtHoy.getMonth() && dtTransf.getFullYear() === dtHoy.getFullYear();
     const diasAtraso = Math.floor((dtHoy - dtTransf) / 86400000);
     // Lógica de fecha para CbteFch:
-    // - Mismo mes, transf antes de hoy: usar HOY para evitar regresión de fechas
-    //   (AFIP rechaza 10016 si CbteFch < último comprobante autorizado)
-    // - Mismo mes, transf hoy: usar fecha de transferencia
-    // - Mes vencido ≤5 días: usar fecha de transferencia (cae dentro del límite)
-    // - Mes vencido >5 días: usar hoy - 5 días (última fecha permitida por AFIP)
+    // - Mes vencido ≤5 días corridos: usar fecha de transferencia
+    // - Mes vencido >5 días: usar la última fecha AFIP permite (hoy - 5 días)
+    // - Cualquier caso: nunca retroceder respecto a maxFechaUsada (última fecha
+    //   ya emitida en esta secuencia) para evitar error AFIP 10016
     let fechaFact = fechaTransf;
-    if (mismoMes && fechaFact < fecha) {
-      fechaFact = fecha; // evita regresión: nunca ir hacia atrás respecto a hoy
-    } else if (!mismoMes && diasAtraso > 5) {
+    if (!mismoMes && diasAtraso > 5) {
       const d = new Date(fecha);
       d.setDate(d.getDate() - 5);
       fechaFact = d.toISOString().slice(0, 10);
-      console.warn(`⚠️ [Extracto] ${nombre}: transferencia ${fechaTransf} tiene ${diasAtraso}d de atraso (mes vencido, máx 5d corridos) → facturando con última fecha permitida ${fechaFact}`);
+      console.warn(`⚠️ [Extracto] ${nombre}: transferencia ${fechaTransf} tiene ${diasAtraso}d de atraso (mes vencido, máx 5d corridos) → facturando con ${fechaFact}`);
+    }
+    if (fechaFact < maxFechaUsada) {
+      console.warn(`⚠️ [Extracto] ${nombre}: fecha ${fechaFact} < piso secuencia ${maxFechaUsada} → ajustando`);
+      fechaFact = maxFechaUsada;
     }
 
     if (cuitCliente.length !== 11 || monto <= 0) {
@@ -4392,6 +4423,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         comprobante, cae: afipResult.CAE, total: impTotal, pdfUrl: pdfPublicUrl
       });
       job.progreso++;
+      if (fechaFact > maxFechaUsada) maxFechaUsada = fechaFact; // mantener piso para próxima
       console.log(`✅ [Extracto] Factura emitida: ${comprobante} | CUIT ${cuitCliente} | $${impTotal}`);
 
     } catch (err) {
