@@ -744,7 +744,7 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
 body { margin: 0; color: #0f172a; background: #ffffff; }
 .page { ${pageStyle} }
 .top-accent { height: 5px; background: linear-gradient(90deg, #1e293b 0%, #334155 65%, #C97A3A 100%); border-radius: 3px; margin-bottom: 22px; }
-.header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 18px; overflow: hidden; }
+.header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 18px; }
 .header-left { flex: 1; padding: 22px 24px; border-right: 1px solid #e2e8f0; }
 .header-right { flex: 1; padding: 22px 24px; position: relative; text-align: right; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); }
 .letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 52px; height: 52px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; }
@@ -840,7 +840,6 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
     </div>
   </div>
   <div class="leyenda">${safeText(EMISOR.leyenda)}</div>
-  <div class="page-footer">${safeText(EMISOR.nombreVisible)}&nbsp;&nbsp;·&nbsp;&nbsp;mercadolimpio.ar</div>
 </div></body></html>`;
 }
 
