@@ -713,7 +713,7 @@ const LOGO_DATA_URL = logoPathToDataUrl(LOGO_PATH);
 // ============================
 // HTML FACTURA
 // ============================
-function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total, cae, caeVtoISO, condicionVenta, qrDataUrl, isPreview = false, notaFactura = "", subtotalBruto = 0, descuentoPct = 0, descuentoImporte = 0, totalFinal = 0 }) {
+function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total, cae, caeVtoISO, condicionVenta, qrDataUrl, isPreview = false, notaFactura = "", refTransferencia = "", subtotalBruto = 0, descuentoPct = 0, descuentoImporte = 0, totalFinal = 0 }) {
   const pvStr = pad(pv, 5), nroStr = pad(nro, 8);
   const fechaAR = fechaISO.split("-").reverse().join("/");
   const caeVtoAR = caeVtoISO ? String(caeVtoISO).split("-").reverse().join("/") : "VISTA PREVIA";
@@ -739,7 +739,7 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
   const showDesc = Number(descuentoImporte || 0) > 0 && Number(subtotalBruto || 0) > 0;
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Factura A ${pvStr}-${nroStr}</title>
-<style>* { box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; } body { margin: 0; color: #0f172a; background: #ffffff; } .page { ${pageStyle} } .header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 20px; } .header-left { flex: 1; padding: 20px; border-right: 1px solid #e2e8f0; } .header-right { flex: 1; padding: 20px; position: relative; text-align: right; } .letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 50px; height: 50px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; } .letter { font-size: 32px; font-weight: 900; color: #1e293b; margin: 0; } .title { font-weight: 900; font-size: 26px; color: #1e293b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; } .muted { color: #475569; font-size: 11px; margin: 3px 0; } .muted strong { color: #1e293b; } .client-box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px; background: #f8fafc; page-break-inside: avoid; position: relative; } .nota-fraccion { position: absolute; top: 10px; right: 15px; background: #fef08a; color: #a16207; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 4px; white-space: pre-line; text-align: right; } table { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; } th { background: #1e293b; color: #ffffff; padding: 12px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; } th.r { text-align: right; } .r { text-align: right; } .footer-grid { display: flex; gap: 20px; margin-top: 20px; page-break-inside: avoid; } .totals-box { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; } .total-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; color: #475569; } .total-row.final { font-size: 16px; font-weight: 900; color: #0f172a; margin-top: 10px; padding-top: 10px; border-top: 2px solid #e2e8f0; } .arca-box { flex: 1; display: flex; align-items: center; justify-content: space-between; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; background: #f8fafc; } .arca-info { font-size: 11px; color: #334155; line-height: 1.6; } .qr { width: 110px; height: 110px; } .leyenda { text-align: center; font-size: 10px; font-weight: bold; color: #64748b; margin-top: 20px; border-top: 1px dashed #cbd5e1; padding-top: 10px; page-break-inside: avoid; }</style>
+<style>* { box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; } body { margin: 0; color: #0f172a; background: #ffffff; } .page { ${pageStyle} } .header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 20px; } .header-left { flex: 1; padding: 20px; border-right: 1px solid #e2e8f0; } .header-right { flex: 1; padding: 20px; position: relative; text-align: right; } .letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 50px; height: 50px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; } .letter { font-size: 32px; font-weight: 900; color: #1e293b; margin: 0; } .title { font-weight: 900; font-size: 26px; color: #1e293b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; } .muted { color: #475569; font-size: 11px; margin: 3px 0; } .muted strong { color: #1e293b; } .client-box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px; background: #f8fafc; page-break-inside: avoid; position: relative; } .nota-fraccion { position: absolute; top: 10px; right: 15px; background: #fef08a; color: #a16207; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 4px; white-space: pre-line; text-align: right; } table { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; } th { background: #1e293b; color: #ffffff; padding: 12px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; } th.r { text-align: right; } .r { text-align: right; } .footer-grid { display: flex; gap: 20px; margin-top: 20px; page-break-inside: avoid; } .totals-box { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; } .total-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; color: #475569; } .total-row.final { font-size: 16px; font-weight: 900; color: #0f172a; margin-top: 10px; padding-top: 10px; border-top: 2px solid #e2e8f0; } .arca-box { flex: 1; display: flex; align-items: center; justify-content: space-between; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; background: #f8fafc; } .arca-info { font-size: 11px; color: #334155; line-height: 1.6; } .qr { width: 110px; height: 110px; } .leyenda { text-align: center; font-size: 10px; font-weight: bold; color: #64748b; margin-top: 20px; border-top: 1px dashed #cbd5e1; padding-top: 10px; page-break-inside: avoid; } .ref-transf-row { font-size: 9.5px; color: #64748b; margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0; letter-spacing: 0.2px; }</style>
 </head><body><div class="page">
   ${isPreview ? `<div style="background:#fef08a; padding:10px; text-align:center; font-weight:bold; color:#a16207; margin-bottom:15px; border-radius:8px;">MODO VISTA PREVIA (AÚN NO AUTORIZADO POR ARCA)</div>` : ""}
   <div class="header-box">
@@ -773,6 +773,7 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
         ${domicilioHtml}
       </td>
     </tr></table>
+    ${refTransferencia ? `<div class="ref-transf-row">${safeText(refTransferencia)}</div>` : ""}
   </div>
   <table>
     <thead><tr>
@@ -4339,10 +4340,10 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         precioNeto:   round2((Number(it.subtotalConIva) / 1.21) / it.cantidad)
       }));
 
-      const notaParaFactura = [
+      const refParaFactura = [
         t.referencia ? `Ref. banco: ${t.referencia}` : "",
         `Fecha transf.: ${fechaTransf.split("-").reverse().join("/")}`
-      ].filter(Boolean).join("  |  ");
+      ].filter(Boolean).join("   |   ");
 
       const htmlPDF = buildFacturaHtml({
         receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
@@ -4350,7 +4351,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         neto: impNeto, iva: impIVA, total: impTotal,
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
         condicionVenta, qrDataUrl, isPreview: false,
-        notaFactura: notaParaFactura
+        refTransferencia: refParaFactura
       });
 
       let pdfPublicUrl = "";
@@ -4389,7 +4390,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       console.log(`✅ [Extracto] Factura emitida: ${comprobante} | CUIT ${cuitCliente} | $${impTotal}`);
 
     } catch (err) {
-      console.error(`❌ [Extracto] Error en CUIT ${cuitCliente}:`, err?.message);
+      const errStatus = err?.response?.status || err?.status;
+      const errBody   = err?.response?.data || err?.data;
+      console.error(`❌ [Extracto] Error en CUIT ${cuitCliente}: ${err?.message}${errStatus ? ` [HTTP ${errStatus}]` : ""}${errBody ? " | " + JSON.stringify(errBody).slice(0, 400) : ""}`);
       job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: err?.message || "Error AFIP" });
       job.errores++;
       job.progreso++;
