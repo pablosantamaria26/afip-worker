@@ -967,7 +967,9 @@ app.get("/ver-factura/:comprobante", async (req, res) => {
       neto: impNeto, iva: impIVA, total: impTotal,
       cae: f.cae || "", caeVtoISO: "",
       condicionVenta: f.condicion_venta || "Transferencia Bancaria",
-      qrDataUrl, isPreview: false
+      qrDataUrl, isPreview: false,
+      refBanco: String(f.referencia_bancaria || ""),
+      refFechaTransf: f.fecha_transferencia_banco ? String(f.fecha_transferencia_banco).split("-").reverse().join("/") : ""
     });
 
     // Agregar estilo de impresión automática
@@ -1690,7 +1692,9 @@ app.post("/regenerar-pdf", async (req, res) => {
       neto: impNeto, iva: impIVA, total: impTotal,
       cae, caeVtoISO,
       condicionVenta: f.condicion_venta || "Transferencia Bancaria",
-      qrDataUrl, isPreview: false
+      qrDataUrl, isPreview: false,
+      refBanco: String(f.referencia_bancaria || ""),
+      refFechaTransf: f.fecha_transferencia_banco ? String(f.fecha_transferencia_banco).split("-").reverse().join("/") : ""
     });
 
     const pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
@@ -2840,7 +2844,9 @@ async function guardarComprobanteGeneralEnDB({
   items,
   emailAEnviar = "",
   emailStatus = "pending",
-  emailError = ""
+  emailError = "",
+  referenciaBancaria = "",
+  fechaTransferenciaBanco = ""
 }) {
   const registro = {
     timestamp: new Date().toISOString(),
@@ -2861,7 +2867,9 @@ async function guardarComprobanteGeneralEnDB({
     email_to: String(emailAEnviar || ""),
     email_status: String(emailStatus || "pending"),
     email_error: String(emailError || ""),
-    items: JSON.stringify(Array.isArray(items) ? items : [])
+    items: JSON.stringify(Array.isArray(items) ? items : []),
+    ...(referenciaBancaria    ? { referencia_bancaria:      String(referenciaBancaria) }    : {}),
+    ...(fechaTransferenciaBanco ? { fecha_transferencia_banco: String(fechaTransferenciaBanco) } : {})
   };
 
   if (supabase) {
@@ -4436,7 +4444,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
         nro, pv, cae: afipResult.CAE, impTotal,
         pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
-        fecha: fechaFact, items, emailAEnviar: DEFAULT_EMAIL
+        fecha: fechaFact, items, emailAEnviar: DEFAULT_EMAIL,
+        referenciaBancaria: String(t.referencia || ""),
+        fechaTransferenciaBanco: fechaTransf
       });
 
       // Guardado en Supabase OK — marcar pendiente como completo
