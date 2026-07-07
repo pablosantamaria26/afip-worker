@@ -747,7 +747,7 @@ body { margin: 0; color: #0f172a; background: #ffffff; }
 .header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 18px; }
 .header-left { flex: 1; padding: 22px 24px; border-right: 1px solid #e2e8f0; }
 .header-right { flex: 1; padding: 22px 24px; position: relative; text-align: right; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); }
-.letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 52px; height: 52px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; }
+.letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 52px; height: 52px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; z-index: 10; }
 .letter { font-size: 34px; font-weight: 900; color: #1e293b; margin: 0; }
 .title { font-weight: 900; font-size: 26px; color: #1e293b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .muted { color: #475569; font-size: 11px; margin: 4px 0; line-height: 1.5; }
