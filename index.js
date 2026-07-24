@@ -3455,6 +3455,7 @@ function detectarNombreChino(nombre) {
 
 function buildItemsParaMonto(montoTotal) {
   const R2 = n => Math.round((n + 1e-9) * 100) / 100;
+
   const shuffle = arr => {
     const a = [...arr];
     for (let i = a.length - 1; i > 0; i--) {
@@ -3466,48 +3467,52 @@ function buildItemsParaMonto(montoTotal) {
 
   const makePool = shuffle(CATALOGO_MAKE);
   const otroPool = shuffle([...CATALOGO_ROMYL, ...CATALOGO_SAMANTHA, ...CATALOGO_TODOESPONJA]);
+  const nMake    = 3 + Math.floor(Math.random() * 2); // 3–4 items Make
+  const nOtro    = 2 + Math.floor(Math.random() * 2); // 2–3 items otros
+  const selected = [...makePool.slice(0, nMake), ...otroPool.slice(0, nOtro)];
 
-  const nMake = 3 + Math.floor(Math.random() * 2); // 3 o 4 items Make
-  const nOtro = 2 + Math.floor(Math.random() * 2); // 2 o 3 items otros
-  const selectedMake = makePool.slice(0, nMake);
-  const selectedOtro = otroPool.slice(0, nOtro);
+  // Pesos aleatorios normalizados → cada ítem siempre obtiene una porción positiva del total.
+  // Así se elimina la posibilidad de que el "remaining" quede negativo (bug de ítems negativos).
+  const rawW = selected.map(() => 0.5 + Math.random());
+  const sumW = rawW.reduce((a, b) => a + b, 0);
 
-  const targetMake = R2(montoTotal * 0.60);
-  const targetOtro = R2(montoTotal - targetMake);
-
-  function fillItems(products, target) {
-    const items = [];
-    let remaining = target;
-    for (let i = 0; i < products.length; i++) {
-      const p = products[i];
-      const isLast = i === products.length - 1;
-      if (isLast) {
-        const qty = Math.max(1, Math.round(remaining / p.precio));
-        const precioAjustado = R2(remaining / qty);
-        items.push({ descripcion: p.desc, cantidad: qty, precioConIva: precioAjustado, subtotalConIva: R2(qty * precioAjustado) });
-      } else {
-        const share = target / products.length;
-        const qty = Math.max(1, Math.round(share / p.precio));
-        const subtotal = R2(qty * p.precio);
-        items.push({ descripcion: p.desc, cantidad: qty, precioConIva: p.precio, subtotalConIva: subtotal });
-        remaining = R2(remaining - subtotal);
-      }
-    }
-    return items;
+  // Cantidad natural según rango de precio del producto
+  function naturalQty(precio) {
+    if (precio >= 8000) return 1;
+    if (precio >= 3000) return [1, 6][Math.floor(Math.random() * 2)];
+    return [1, 6, 12][Math.floor(Math.random() * 3)];
   }
 
-  const all = [...fillItems(selectedMake, targetMake), ...fillItems(selectedOtro, targetOtro)];
+  const items = [];
+  let remaining = montoTotal;
 
-  // Cierre final: corregir cualquier diferencia residual de redondeo
-  const totalCalc = R2(all.reduce((s, x) => s + x.subtotalConIva, 0));
+  for (let i = 0; i < selected.length; i++) {
+    const p      = selected[i];
+    const isLast = i === selected.length - 1;
+    const qty    = naturalQty(p.precio);
+
+    // Subtotal proporcional al peso — siempre positivo; el último absorbe el resto
+    const subtotal = isLast
+      ? R2(Math.max(0.01, remaining))
+      : R2(montoTotal * rawW[i] / sumW);
+
+    const precio         = R2(subtotal / qty);
+    const actualSubtotal = R2(precio * qty);
+
+    items.push({ descripcion: p.desc, cantidad: qty, precioConIva: precio, subtotalConIva: actualSubtotal });
+    remaining = R2(remaining - actualSubtotal);
+  }
+
+  // Cierre final: diferencia de redondeo absorbe el último ítem
+  const totalCalc = R2(items.reduce((s, x) => s + x.subtotalConIva, 0));
   const diff = R2(montoTotal - totalCalc);
-  if (Math.abs(diff) >= 0.01 && all.length > 0) {
-    const last = all[all.length - 1];
+  if (Math.abs(diff) >= 0.01 && items.length > 0) {
+    const last = items[items.length - 1];
     last.subtotalConIva = R2(last.subtotalConIva + diff);
-    if (last.cantidad > 0) last.precioConIva = R2(last.subtotalConIva / last.cantidad);
+    last.precioConIva   = R2(last.subtotalConIva / last.cantidad);
   }
 
-  return all;
+  return items;
 }
 
 // ── Parseo directo de PDF Santander (sin Gemini) ─────────────────
@@ -3564,7 +3569,15 @@ function parseSantanderPdfText(text) {
     }
     if (!monto || monto <= 0) continue;
 
-    movimientos.push({ fecha: currentFecha, nombre, monto, cuit, descripcion: descLine });
+    // Referencia: buscar en las líneas cercanas "Nro", "Ref", "operaci" + dígitos
+    let referencia = "";
+    for (let j = i - 1; j <= i + 6 && j < lines.length; j++) {
+      if (j < 0) continue;
+      const refMatch = lines[j].match(/(?:nro\.?\s*(?:de\s*)?(?:oper|ref)|referencia|comprobante)[^\d]*(\d{6,})/i);
+      if (refMatch) { referencia = refMatch[1]; break; }
+    }
+
+    movimientos.push({ fecha: currentFecha, nombre, monto, cuit, descripcion: descLine, referencia });
   }
   return movimientos;
 }
@@ -3627,7 +3640,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
       }
       if (movimientos.length === 0) {
         if (!geminiModel) throw new Error("IA no configurada (GEMINI_API_KEY)");
-        const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+        const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO (transferencias entrantes, acreditaciones, depósitos).\n\nPara cada movimiento incluí:\n- fecha: formato YYYY-MM-DD\n- nombre: nombre completo del remitente\n- monto: número positivo sin símbolo ni puntos de miles\n- descripcion: descripción del movimiento\n- cuit: CUIT del remitente si aparece (null si no)\n- referencia: número de referencia/operación bancaria si aparece (string vacío si no)\n\nIgnorá débitos, comisiones y movimientos negativos.\nDevolvé SOLO el JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null,"referencia":""}]}`;
         console.log(`ℹ️ [Extracto PDF] Enviando a Gemini...`);
         let result;
         if (textoPdf.trim().length > 50) {
@@ -3644,7 +3657,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
 
     } else {
       if (!geminiModel) throw new Error("IA no configurada (GEMINI_API_KEY)");
-      const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO.\n\nPara cada movimiento:\n- fecha: YYYY-MM-DD\n- nombre: nombre del remitente\n- monto: número positivo\n- descripcion: descripción\n- cuit: CUIT si aparece (null si no)\n\nIgnorá débitos. JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null}]}`;
+      const PROMPT = `Sos un asistente contable argentino. Analizá este extracto bancario y devolvé ÚNICAMENTE un JSON válido con todos los MOVIMIENTOS DE CRÉDITO.\n\nPara cada movimiento:\n- fecha: YYYY-MM-DD\n- nombre: nombre del remitente\n- monto: número positivo\n- descripcion: descripción\n- cuit: CUIT si aparece (null si no)\n- referencia: número de referencia/operación bancaria si aparece (string vacío si no)\n\nIgnorá débitos. JSON: {"movimientos":[{"fecha":"...","nombre":"...","monto":0,"descripcion":"...","cuit":null,"referencia":""}]}`;
       console.log(`ℹ️ [Extracto Imagen] Enviando a Gemini...`);
       const b64    = fs.readFileSync(filePath).toString("base64");
       const result = await geminiModel.generateContent([PROMPT, { inlineData: { data: b64, mimeType } }]);
@@ -3666,6 +3679,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
     })(),
     descripcion: String(m.descripcion || ""),
     cuit:        m.cuit ? onlyDigits(String(m.cuit)) : null,
+    referencia:  String(m.referencia || ""),
     esChino:     detectarNombreChino(m.nombre)
   })).filter(m => m.monto > 0);
 
