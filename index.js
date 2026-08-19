@@ -69,7 +69,7 @@ const PUNTO_VENTA_ENV = Number(process.env.PUNTO_VENTA || 0);
 const PRODUCTION = String(process.env.PRODUCTION || "true").toLowerCase() === "true";
 const PORT = Number(process.env.PORT || 3000);
 
-const CBTE_TIPO_REAL = 1; // Factura A (tipo 51 Factura M fue discontinuado en ARCA)
+const CBTE_TIPO_REAL = 51; // Factura M en ARCA (se muestra como "A" en emails/display)
 const ITEMS_POR_FACTURA = 25;
 const PUBLIC_URL = String(process.env.PUBLIC_URL || "https://api-mercadolimpio.onrender.com").replace(/\/+$/, "");
 const ENABLE_PADRON_10 = String(process.env.ENABLE_PADRON_10 || "false").toLowerCase() === "true";
@@ -2741,8 +2741,8 @@ function buildComprobanteLabelByTipo(cbteTipo, pv, nro) {
     8: "NC-B",
     11: "FA-C",
     13: "NC-C",
-    51: "FA-M",
-    53: "NC-M"
+    51: "FA-A",
+    53: "NC-A"
   };
   const pref = map[Number(cbteTipo)] || "CBTE";
   return `${pref}-${pad(pv, 5)}-${pad(nro, 8)}`;
@@ -3054,7 +3054,7 @@ app.post("/anular-comprobante", async (req, res) => {
         nombreCliente: datosPadron.nombre, // ¡Acá toma el nombre real de AFIP!
         domicilio: datosPadron.domicilioAfip, // ¡Acá toma el domicilio de AFIP!
         total: req.body.montoTotal || 0,
-        cbteTipo: CBTE_TIPO_REAL
+        cbteTipo: 51
       };
 
       if (!original.nroFactura || !original.total || !original.cuitCliente) {
