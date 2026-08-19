@@ -69,7 +69,7 @@ const PUNTO_VENTA_ENV = Number(process.env.PUNTO_VENTA || 0);
 const PRODUCTION = String(process.env.PRODUCTION || "true").toLowerCase() === "true";
 const PORT = Number(process.env.PORT || 3000);
 
-const CBTE_TIPO_REAL = 51;
+const CBTE_TIPO_REAL = 1; // Factura A (tipo 51 Factura M fue discontinuado en ARCA)
 const ITEMS_POR_FACTURA = 25;
 const PUBLIC_URL = String(process.env.PUBLIC_URL || "https://api-mercadolimpio.onrender.com").replace(/\/+$/, "");
 const ENABLE_PADRON_10 = String(process.env.ENABLE_PADRON_10 || "false").toLowerCase() === "true";
@@ -3054,7 +3054,7 @@ app.post("/anular-comprobante", async (req, res) => {
         nombreCliente: datosPadron.nombre, // ¡Acá toma el nombre real de AFIP!
         domicilio: datosPadron.domicilioAfip, // ¡Acá toma el domicilio de AFIP!
         total: req.body.montoTotal || 0,
-        cbteTipo: 51 // Asumimos Factura M por defecto
+        cbteTipo: CBTE_TIPO_REAL
       };
 
       if (!original.nroFactura || !original.total || !original.cuitCliente) {
@@ -4451,7 +4451,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
-      const comprobante = `M-${pad(pv, 5)}-${pad(nro, 8)}`;
+      const comprobante = `A-${pad(pv, 5)}-${pad(nro, 8)}`;
 
       await guardarComprobanteGeneralEnDB({
         comprobante, cbteTipo: CBTE_TIPO_REAL,
