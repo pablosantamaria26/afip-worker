@@ -4286,6 +4286,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
   const primeraTransf = transferenciasOrdenadas.find(t => t.fecha)?.fecha || fecha;
   if (String(primeraTransf).slice(0, 7) < String(fechaMinAfip).slice(0, 7)) {
     console.warn(`⚠️ [Extracto] El extracto es del período ${String(primeraTransf).slice(0, 7)} pero AFIP sólo permite fechas desde ${fechaMinAfip} (${AFIP_MAX_DIAS_ATRAS}d corridos). Las facturas quedarán en el período ${String(fechaMinAfip).slice(0, 7)}.`);
+  } else if (String(pisoFecha).slice(0, 7) > String(primeraTransf).slice(0, 7)) {
+    console.warn(`⚠️ [Extracto] Ya hay una factura posterior en la secuencia (piso ${pisoFecha}). AFIP no deja retroceder: estas facturas NO quedarán en el período ${String(primeraTransf).slice(0, 7)}. Corré el extracto del mes vencido ANTES de emitir comprobantes del mes nuevo.`);
+    job.avisoSecuencia = `Ya había un comprobante con fecha ${pisoFecha}; las facturas del extracto no pudieron quedar en ${String(primeraTransf).slice(0, 7)}.`;
   }
 
   let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
@@ -4612,6 +4615,7 @@ app.get("/estado-extracto/:jobId", async (req, res) => {
     jobId: job.jobId,
     estado: job.estado,
     interrumpido: job.estado === "interrumpido",
+    avisoSecuencia: job.avisoSecuencia || null,
     progreso: job.progreso,
     total: job.total,
     porcentaje: job.total > 0 ? Math.round((job.progreso / job.total) * 100) : 0,
