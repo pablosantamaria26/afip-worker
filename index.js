@@ -1,5 +1,11 @@
 "use strict";
 require("dotenv").config();
+
+// Fijar zona horaria de Argentina ANTES de cualquier uso de Date. En Render el
+// contenedor corre en UTC: sin esto, "hoy" se adelanta 3 h y cerca de medianoche
+// las facturas podían caer en el día (y hasta el mes) equivocado.
+process.env.TZ = process.env.TZ || "America/Argentina/Buenos_Aires";
+
 const cron = require("node-cron");
 const Afip = require("@afipsdk/afip.js");
 const nodemailer = require("nodemailer");
@@ -4233,16 +4239,29 @@ async function cargarJobExtracto(jobId) {
 async function procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv }) {
   const job = jobsExtracto.get(jobId);
 
-  // Consultar la fecha de la última factura emitida para evitar regresión de
-  // fechas en AFIP (error 10016). AFIP exige que CbteFch no retroceda dentro
-  // de la misma secuencia de punto de venta + tipo de comprobante.
-  let pisoFecha = fecha; // mínimo: hoy
+  // ── Ventana de fechas de AFIP (WSFEv1, Concepto 1 = productos) ────────────
+  // AFIP acepta CbteFch hasta 5 días CORRIDOS hacia atrás respecto de la fecha
+  // de envío. Ese es el piso real — NO "hoy". Gracias a esto, una transferencia
+  // de un mes ya cerrado, facturada dentro de los primeros 5 días del mes
+  // siguiente, queda con fecha del mes vencido y pertenece a ese período.
+  const AFIP_MAX_DIAS_ATRAS = 5;
+  const fechaMinAfip = (() => {
+    const d = new Date(fecha + "T12:00:00");
+    d.setDate(d.getDate() - AFIP_MAX_DIAS_ATRAS);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  // Consultar la fecha de la última factura emitida para no retroceder dentro
+  // de la misma secuencia (PV + tipo) — AFIP lo rechaza con error 10016.
+  let pisoFecha = fechaMinAfip; // piso = lo más atrás que AFIP permite hoy
   if (supabase) {
     try {
       const { data: ultFac } = await supabase
         .from("facturas")
         .select("fecha")
         .eq("punto_venta", pv)
+        .eq("cbte_tipo", CBTE_TIPO_REAL)
+        .gt("total", 0)
         .order("nro_factura", { ascending: false })
         .limit(1);
       if (ultFac?.[0]?.fecha) {
@@ -4261,6 +4280,14 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     String(a.fecha || "").localeCompare(String(b.fecha || ""))
   );
 
+  // Aviso si el período que se concilia ya quedó fuera de la ventana de AFIP
+  // (se subió el extracto demasiado tarde): las facturas no podrán llevar
+  // fecha del mes vencido.
+  const primeraTransf = transferenciasOrdenadas.find(t => t.fecha)?.fecha || fecha;
+  if (String(primeraTransf).slice(0, 7) < String(fechaMinAfip).slice(0, 7)) {
+    console.warn(`⚠️ [Extracto] El extracto es del período ${String(primeraTransf).slice(0, 7)} pero AFIP sólo permite fechas desde ${fechaMinAfip} (${AFIP_MAX_DIAS_ATRAS}d corridos). Las facturas quedarán en el período ${String(fechaMinAfip).slice(0, 7)}.`);
+  }
+
   let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
 
   for (const t of transferenciasOrdenadas) {
@@ -4268,22 +4295,18 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const monto       = Math.abs(Number(t.monto || 0));
     const nombre      = String(t.nombre || "Cliente");
     const fechaTransf = String(t.fecha || fecha);
-    const dtTransf  = new Date(fechaTransf);
-    const dtHoy     = new Date(fecha);
-    const mismoMes  = dtTransf.getMonth() === dtHoy.getMonth() && dtTransf.getFullYear() === dtHoy.getFullYear();
-    const diasAtraso = Math.floor((dtHoy - dtTransf) / 86400000);
-    // Lógica de fecha para CbteFch:
-    // - Mes vencido ≤5 días corridos: usar fecha de transferencia
-    // - Mes vencido >5 días: usar la última fecha AFIP permite (hoy - 5 días)
-    // - Cualquier caso: nunca retroceder respecto a maxFechaUsada (última fecha
-    //   ya emitida en esta secuencia) para evitar error AFIP 10016
+
+    // CbteFch: se respeta la fecha real de la transferencia, acotada a la
+    // ventana [fechaMinAfip … hoy] y sin retroceder respecto de la última
+    // factura ya emitida en esta secuencia (AFIP 10016).
+    // Con esto, una transferencia del 24/8 facturada el 1/9 queda p.ej. 27/8:
+    // fecha de agosto, período agosto — aunque no coincida con la transferencia.
     let fechaFact = fechaTransf;
-    if (!mismoMes && diasAtraso > 5) {
-      const d = new Date(fecha);
-      d.setDate(d.getDate() - 5);
-      fechaFact = d.toISOString().slice(0, 10);
-      console.warn(`⚠️ [Extracto] ${nombre}: transferencia ${fechaTransf} tiene ${diasAtraso}d de atraso (mes vencido, máx 5d corridos) → facturando con ${fechaFact}`);
+    if (fechaFact < fechaMinAfip) {
+      console.warn(`⚠️ [Extracto] ${nombre}: transferencia ${fechaTransf} fuera de la ventana AFIP (${AFIP_MAX_DIAS_ATRAS}d corridos) → facturando con ${fechaMinAfip}`);
+      fechaFact = fechaMinAfip;
     }
+    if (fechaFact > fecha) fechaFact = fecha; // nunca postdatar más allá de hoy
     if (fechaFact < maxFechaUsada) {
       console.warn(`⚠️ [Extracto] ${nombre}: fecha ${fechaFact} < piso secuencia ${maxFechaUsada} → ajustando`);
       fechaFact = maxFechaUsada;
@@ -4340,7 +4363,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
           .limit(1);
         if (pendiente && pendiente.length > 0) {
           const p = pendiente[0];
-          const compPnd = `M-${pad(p.punto_venta || pv, 5)}-${pad(p.nro_comprobante || 0, 8)}`;
+          const compPnd = `A-${pad(p.punto_venta || pv, 5)}-${pad(p.nro_comprobante || 0, 8)}`;
           console.warn(`⚠️ [Extracto] OMITIDO (pendiente AFIP OK): CUIT ${cuitCliente} | CAE ${p.cae} | ${compPnd}`);
           job.resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: compPnd, total: montoConIvaP, pdfUrl: "" });
           job.progreso++;
@@ -4488,6 +4511,11 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       job.errores++;
       job.progreso++;
     }
+
+    // Persistir progreso tras cada transferencia: si Render recicla el proceso
+    // a mitad de corrida, el polling recupera el estado desde Storage y no se
+    // pierde el rastro de qué se emitió.
+    await persistirJobExtracto(jobId, job);
   }
 
   job.estado = "terminado";
@@ -4499,12 +4527,15 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
   // Persistir en Storage para que sobreviva reinicios del servidor
   await persistirJobExtracto(jobId, job);
 
-  // Generar Excel de conciliación en background
+  // Generar Excel de conciliación en background.
+  // El período conciliado es el de las transferencias del extracto (no "hoy"),
+  // así el Excel mira agosto aunque la corrida sea el 1/9.
+  const periodoConciliado = `${String(primeraTransf).slice(0, 7)}-15`;
   generarReporteExtracto({
     resultados: job.resultados,
     todasTransferencias,
     emailReporte,
-    fecha,
+    fecha: periodoConciliado,
     totalFacturado: job.totalFacturado
   }).catch(e => console.error("⚠️ [Reporte] Error inesperado:", e?.message));
 }
@@ -4557,17 +4588,30 @@ app.post("/facturar-extracto", async (req, res) => {
 app.get("/estado-extracto/:jobId", async (req, res) => {
   const { jobId } = req.params;
   let job = jobsExtracto.get(jobId);
+  let recuperadoDeStorage = false;
   if (!job) {
     job = await cargarJobExtracto(jobId);
-    if (job) jobsExtracto.set(jobId, job);
+    recuperadoDeStorage = !!job;
   }
   if (!job) return res.status(404).json({ ok: false, message: "Job no encontrado. El servidor pudo haberse reiniciado antes de completar." });
+
+  // Si vino de Storage y sigue "procesando", el proceso que lo corría ya no
+  // existe (Render recicló el worker). Lo marcamos interrumpido y devolvemos
+  // lo emitido hasta ahí: volver a correr el extracto es seguro (dedup).
+  if (recuperadoDeStorage && job.estado === "procesando") {
+    job.estado = "interrumpido";
+    job.fin = job.fin || new Date().toISOString();
+  }
+  jobsExtracto.set(jobId, job);
+
   const emitidas = job.resultados.filter(r => r.ok && !r.skipped).length;
   const omitidas = job.resultados.filter(r => r.skipped).length;
+  const finalizado = job.estado === "terminado" || job.estado === "interrumpido";
   res.json({
     ok: true,
     jobId: job.jobId,
     estado: job.estado,
+    interrumpido: job.estado === "interrumpido",
     progreso: job.progreso,
     total: job.total,
     porcentaje: job.total > 0 ? Math.round((job.progreso / job.total) * 100) : 0,
@@ -4577,7 +4621,7 @@ app.get("/estado-extracto/:jobId", async (req, res) => {
     errores: job.errores,
     inicio: job.inicio,
     fin: job.fin || null,
-    resultados: job.estado === "terminado" ? job.resultados : []
+    resultados: finalizado ? job.resultados : []
   });
 });
 
@@ -4757,4 +4801,30 @@ Asistente:`;
     console.error("❌ [Compras Chat]", err?.message || err);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ── Error handler final ─────────────────────────────────────────
+// Captura errores de subida (multer/busboy): "Unexpected end of form" cuando el
+// cliente corta la conexión a mitad del upload, archivo demasiado grande, etc.
+// Sin esto Express imprime un stack trace y responde un HTML de error.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const msg = String(err?.message || err || "");
+  const esUpload =
+    err?.name === "MulterError" ||
+    /unexpected end of form|multipart|file too large|LIMIT_FILE_SIZE/i.test(msg);
+
+  if (esUpload) {
+    console.warn(`⚠️ [Upload] ${req.method} ${req.path}: ${msg}`);
+    if (!res.headersSent) {
+      return res.status(400).json({
+        ok: false,
+        message: "La subida se interrumpió. Reintentá con el servidor activo."
+      });
+    }
+    return;
+  }
+
+  console.error(`❌ [Error no manejado] ${req.method} ${req.path}:`, msg);
+  if (!res.headersSent) res.status(500).json({ ok: false, message: "Error interno" });
 });
