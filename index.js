@@ -4038,89 +4038,78 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     wsNC.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6, column: 5 } };
 
     // ══════════════════════════════════════════════════════════════
-    // HOJA 3: EXTRACTO BANCARIO
+    // HOJA 3: EXTRACTO BANCARIO — solo muestra lo facturado en esta corrida
     // ══════════════════════════════════════════════════════════════
     const wsE = wb.addWorksheet("Extracto Bancario");
     wsE.properties.tabColor = C.grnFg;
     wsE.properties.defaultRowHeight = 17;
     wsE.columns = [
-      { key: "fecha",  width: 14 },
-      { key: "nombre", width: 36 },
-      { key: "cuit",   width: 16 },
-      { key: "monto",  width: 18 },
-      { key: "estado", width: 22 },
+      { key: "fecha",       width: 14 },
+      { key: "nombre",      width: 36 },
+      { key: "cuit",        width: 16 },
+      { key: "monto",       width: 18 },
+      { key: "comprobante", width: 24 },
+      { key: "total",       width: 18 },
     ];
 
-    const facturasDelMes = todasFacturasMes.map(f => ({ cuit: f.cuit_cliente, total: f.total }));
-    function estaFacturada(t) {
-      const montoConIva = round2(t.monto * 1.21);
-      const cuitT = onlyDigits(String(t.cuit || ""));
-      return facturasDelMes.some(f => f.cuit === cuitT && Math.abs(f.total - montoConIva) <= 2);
+    // Índice de transferencias bancarias por CUIT para cruzar con resultados
+    const transfPorCuit = new Map();
+    for (const t of (todasTransferencias || [])) {
+      const k = onlyDigits(String(t.cuit || ""));
+      if (k && !transfPorCuit.has(k)) transfPorCuit.set(k, t);
     }
 
-    const transferencias = todasTransferencias || [];
-    const facturadas  = transferencias.filter(t => estaFacturada(t));
-    const sinFacturar = transferencias.filter(t => !estaFacturada(t));
-    const totalTransf   = transferencias.reduce((s, t) => s + Number(t.monto || 0), 0);
-    const totalFacturadas = facturadas.reduce((s, t) => s + Number(t.monto || 0), 0);
-    const pctCubierto = totalTransf > 0 ? Math.round((totalFacturadas / totalTransf) * 100) : 0;
+    // Solo las emitidas en esta corrida (excluye skipped y errores)
+    const emitidas = resultados.filter(r => r.ok && !r.skipped);
+    const totalEmitidas = emitidas.reduce((s, r) => s + Number(r.total || 0), 0);
 
-    applyTitle(wsE, 5, `EXTRACTO BANCARIO  ·  ${mesNombreCap}`);
-    applyKPIBand(wsE, 5, [
-      { label: "TRANSFERENCIAS", value: String(transferencias.length) },
-      { label: "FACTURADAS",     value: `${facturadas.length} (${pctCubierto}%)` },
-      { label: "SIN FACTURAR",   value: String(sinFacturar.length) },
+    applyTitle(wsE, 6, `EXTRACTO BANCARIO  ·  ${mesNombreCap}`);
+    applyKPIBand(wsE, 6, [
+      { label: "EMITIDAS ESTA CORRIDA", value: String(emitidas.length) },
+      { label: "TOTAL FACTURADO",       value: `$${formatMoneyAR(totalEmitidas)}` },
     ]);
-    applyColHeaders(wsE, 6, ["Fecha", "Nombre / Empresa", "CUIT", "Monto ($)", "Estado"]);
+    applyColHeaders(wsE, 7, ["Fecha Transf.", "Nombre / Empresa", "CUIT", "Monto Transf. ($)", "Comprobante", "Total c/IVA ($)"]);
 
-    const DATA_START_E = 7;
-    transferencias.forEach((t, idx) => {
-      const rn   = DATA_START_E + idx;
-      const fact = estaFacturada(t);
+    const DATA_START_E = 8;
+    emitidas.forEach((r, idx) => {
+      const rn  = DATA_START_E + idx;
+      const cuitR = onlyDigits(String(r.cuit || ""));
+      const t   = transfPorCuit.get(cuitR);
       wsE.getRow(rn).height = 17;
-      const alt = idx % 2 === 1;
-
-      if (fact) {
-        // Verde para facturadas
-        [t.fecha || "", t.nombre || "", t.cuit || "", t.monto || 0, "✅ Facturada"].forEach((val, i) => {
-          const cell = wsE.getCell(rn, i + 1);
-          cell.value = val;
-          cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnBg };
-          cell.font  = { size: 10, name: "Calibri", color: C.grnFg, bold: i === 4 };
-          cell.alignment = { vertical: "middle", horizontal: i === 1 || i === 4 ? "left" : "center", wrapText: false };
-          cell.border = { bottom: { style: "hair", color: C.hairLine } };
-          if (i === 3) cell.numFmt = "#,##0.00";
-        });
-      } else {
-        applyDataCell(wsE.getCell(rn, 1), t.fecha  || "",  alt, { align: "center" });
-        applyDataCell(wsE.getCell(rn, 2), t.nombre || "",  alt, { align: "left" });
-        applyDataCell(wsE.getCell(rn, 3), t.cuit   || "",  alt, { align: "center" });
-        applyDataCell(wsE.getCell(rn, 4), t.monto  || 0,   alt, { align: "right", numFmt: "#,##0.00" });
-        applyDataCell(wsE.getCell(rn, 5), "⏳ Pendiente",  alt, { align: "left" });
-      }
-    });
-
-    // Fila resumen de totales al final
-    const summaryRn = DATA_START_E + transferencias.length + 1;
-    wsE.getRow(summaryRn - 1).height = 6; // spacer
-    wsE.getRow(summaryRn).height = 24;
-    [
-      ["", "TOTAL FACTURADO", "", totalFacturadas, ""],
-    ].forEach(([f, n, c, m, e], rowOff) => {
-      const rn2 = summaryRn + rowOff;
-      [f, n, c, m, e].forEach((val, i) => {
-        const cell = wsE.getCell(rn2, i + 1);
+      [
+        t?.fecha  || "",
+        r.nombre  || "",
+        r.cuit    || "",
+        t?.monto  || round2(Number(r.total || 0) / 1.21),
+        r.comprobante || "",
+        Number(r.total || 0),
+      ].forEach((val, i) => {
+        const cell = wsE.getCell(rn, i + 1);
         cell.value = val;
-        cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnTotal };
-        cell.font  = { bold: true, size: 11, name: "Calibri", color: C.grnTotalFg };
-        cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : i === 3 ? "right" : "center" };
-        cell.border = { top: { style: "medium", color: C.grnFg }, bottom: { style: "medium", color: C.grnFg } };
-        if (i === 3) cell.numFmt = "#,##0.00";
+        cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnBg };
+        cell.font  = { size: 10, name: "Calibri", color: C.grnFg, bold: i === 4 };
+        cell.alignment = { vertical: "middle", horizontal: i === 1 || i === 4 ? "left" : "center", wrapText: false };
+        cell.border = { bottom: { style: "hair", color: C.hairLine } };
+        if (i === 3 || i === 5) cell.numFmt = "#,##0.00";
       });
     });
 
-    wsE.views = [{ state: "frozen", ySplit: 6, xSplit: 0, showGridLines: false }];
-    wsE.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6, column: 5 } };
+    // Fila resumen de totales al final
+    const summaryRn = DATA_START_E + emitidas.length + 1;
+    wsE.getRow(summaryRn - 1).height = 6; // spacer
+    wsE.getRow(summaryRn).height = 24;
+    ["", "TOTAL FACTURADO", "", "", "", totalEmitidas].forEach((val, i) => {
+      const cell = wsE.getCell(summaryRn, i + 1);
+      cell.value = val;
+      cell.fill  = { type: "pattern", pattern: "solid", fgColor: C.grnTotal };
+      cell.font  = { bold: true, size: 11, name: "Calibri", color: C.grnTotalFg };
+      cell.alignment = { vertical: "middle", horizontal: i === 1 ? "left" : i === 5 ? "right" : "center" };
+      cell.border = { top: { style: "medium", color: C.grnFg }, bottom: { style: "medium", color: C.grnFg } };
+      if (i === 5) cell.numFmt = "#,##0.00";
+    });
+
+    wsE.views = [{ state: "frozen", ySplit: 7, xSplit: 0, showGridLines: false }];
+    wsE.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: 6 } };
 
     // ── Generar buffer y enviar por email ───────────────────────
     const xlsxBuffer = await wb.xlsx.writeBuffer();
