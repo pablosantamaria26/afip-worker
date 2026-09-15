@@ -4173,7 +4173,7 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
           <td style="padding:10px 12px;background:#F0F4F8;border-radius:0 0 8px 8px;">
             <span style="font-size:15px;">🟢</span>
             <strong style="color:#1E3A5F;margin-left:8px;">Extracto Bancario</strong>
-            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${facturadas.length}/${transferencias.length} transferencias facturadas (${pctCubierto}%)</span>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${corrida} emitidas en esta corrida</span>
           </td>
         </tr>
       </table>
