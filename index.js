@@ -4399,12 +4399,13 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       }
 
       let nro, afipResult;
+      let fechaFactEfectiva = fechaFact;
       for (let intento = 0; intento <= 2; intento++) {
         nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
         const vd = {
           CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
-          CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaFact),
+          CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaFactEfectiva),
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
@@ -4417,7 +4418,10 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         } catch (afipErr) {
           const msg = String(afipErr?.message || "");
           if (intento < 2 && msg.includes("10016")) {
-            console.warn(`⚠️ [AFIP] 10016 intento ${intento + 1}/2 para CUIT ${cuitCliente}, reintentando...`);
+            // En el reintento usamos hoy: puede ser error de número O de fecha (si el último
+            // comprobante fue emitido con fecha posterior a fechaFact, AFIP rechaza la fecha vieja)
+            fechaFactEfectiva = todayISO();
+            console.warn(`⚠️ [AFIP] 10016 intento ${intento + 1}/2 para CUIT ${cuitCliente}, reintentando con fecha ${fechaFactEfectiva}...`);
             await new Promise(r => setTimeout(r, 800));
             continue;
           }
