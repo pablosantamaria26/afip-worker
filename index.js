@@ -320,46 +320,75 @@ async function getReceptorDesdePadron(cuitCliente) {
   const cuitNum = Number(cuitStr);
   const base = { nombre: `CUIT ${cuitCliente}`, domicilioAfip: "", condicionIVA: "IVA Responsable Inscripto" };
   if (!cuitStr || cuitStr.length !== 11) return base;
+
+  // 1) Caché en memoria (12hs) — evita viajes a Supabase dentro de la misma corrida
   const cached = padronCache.get(cuitStr);
   if (cached && Date.now() < cached.exp) return cached.data;
+
+  // 2) Caché persistente en Supabase (30 días) — evita requests a AFIPSDK entre corridas
+  if (supabase) {
+    try {
+      const hace30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: row } = await supabase
+        .from("padron_cache")
+        .select("nombre, domicilio_afip, condicion_iva")
+        .eq("cuit", cuitStr)
+        .gte("cached_at", hace30dias)
+        .maybeSingle();
+      if (row) {
+        const fromDb = { nombre: row.nombre || base.nombre, domicilioAfip: row.domicilio_afip || "", condicionIVA: row.condicion_iva || base.condicionIVA };
+        padronCache.set(cuitStr, { data: fromDb, exp: Date.now() + PADRON_TTL_MS });
+        return fromDb;
+      }
+    } catch (e) { /* fallo silencioso: continúa con AFIPSDK */ }
+  }
+
+  // 3) Consulta a AFIPSDK (consume requests del plan)
+  let resultado = null;
 
   try {
     const p13 = await afip.RegisterScopeThirteen.getTaxpayerDetails(cuitNum);
     const r13 = normalizePadronDetails(p13, cuitCliente);
     if (r13.nombre && r13.nombre !== base.nombre) base.nombre = r13.nombre;
-    if (r13.domicilioAfip) {
-      padronCache.set(cuitStr, { data: r13, exp: Date.now() + PADRON_TTL_MS });
-      return r13;
-    }
+    if (r13.domicilioAfip) resultado = r13;
   } catch (e) { if (DEBUG) errlog("PADRON A13 error:", e?.message || e); }
 
-  if (ENABLE_PADRON_10 && afip.RegisterScopeTen?.getTaxpayerDetails) {
+  if (!resultado && ENABLE_PADRON_10 && afip.RegisterScopeTen?.getTaxpayerDetails) {
     try {
       const p10 = await afip.RegisterScopeTen.getTaxpayerDetails(cuitNum);
       const r10 = normalizePadronDetails(p10, cuitCliente);
       if (r10.nombre && r10.nombre !== base.nombre) base.nombre = r10.nombre;
-      if (r10.domicilioAfip) {
-        padronCache.set(cuitStr, { data: r10, exp: Date.now() + PADRON_TTL_MS });
-        return r10;
-      }
+      if (r10.domicilioAfip) resultado = r10;
     } catch (e) { if (DEBUG) errlog("PADRON A10 error:", e?.message || e); }
   }
 
-  try {
-    const svc = afip.RegisterInscriptionProof || afip.InscriptionProof || afip.RegistrationProof || null;
-    if (svc && typeof svc.getTaxpayerDetails === "function") {
-      const pc = await svc.getTaxpayerDetails(cuitNum);
-      const rc = normalizePadronDetails(pc, cuitCliente);
-      if (rc.nombre && rc.nombre !== base.nombre) base.nombre = rc.nombre;
-      if (rc.domicilioAfip) {
-        padronCache.set(cuitStr, { data: rc, exp: Date.now() + PADRON_TTL_MS });
-        return rc;
+  if (!resultado) {
+    try {
+      const svc = afip.RegisterInscriptionProof || afip.InscriptionProof || afip.RegistrationProof || null;
+      if (svc && typeof svc.getTaxpayerDetails === "function") {
+        const pc = await svc.getTaxpayerDetails(cuitNum);
+        const rc = normalizePadronDetails(pc, cuitCliente);
+        if (rc.nombre && rc.nombre !== base.nombre) base.nombre = rc.nombre;
+        if (rc.domicilioAfip) resultado = rc;
       }
-    }
-  } catch (e) { if (DEBUG) errlog("CONSTANCIA error:", e?.message || e); }
+    } catch (e) { if (DEBUG) errlog("CONSTANCIA error:", e?.message || e); }
+  }
 
-  padronCache.set(cuitStr, { data: base, exp: Date.now() + PADRON_TTL_MS });
-  return base;
+  const final = resultado || base;
+  padronCache.set(cuitStr, { data: final, exp: Date.now() + PADRON_TTL_MS });
+
+  // Guardar en Supabase para las próximas corridas
+  if (supabase && final.nombre !== base.nombre) {
+    supabase.from("padron_cache").upsert({
+      cuit: cuitStr,
+      nombre: final.nombre,
+      domicilio_afip: final.domicilioAfip || "",
+      condicion_iva: final.condicionIVA || "IVA Responsable Inscripto",
+      cached_at: new Date().toISOString()
+    }, { onConflict: "cuit" }).then(() => {}).catch(() => {});
+  }
+
+  return final;
 }
 
 // ============================
