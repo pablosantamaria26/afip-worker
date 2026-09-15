@@ -1435,7 +1435,8 @@ app.post("/facturar", async (req, res) => {
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
-          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
+          CondicionIVAReceptorId: 1  // RG 5.616 obligatorio desde 01/12/2026
         };
         try {
           result = await afip.ElectronicBilling.createVoucher(voucherData);
@@ -3122,6 +3123,7 @@ app.post("/anular-comprobante", async (req, res) => {
         MonId: "PES",
         MonCotiz: 1,
         Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
+        CondicionIVAReceptorId: 1,  // RG 5.616 obligatorio desde 01/12/2026
         CbtesAsoc: [{
           Tipo: cbteTipoOriginal,
           PtoVta: Number(original.puntoVenta),
@@ -4406,7 +4408,8 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
-          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }]
+          Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
+          CondicionIVAReceptorId: 1  // RG 5.616 obligatorio desde 01/12/2026
         };
         try {
           afipResult = await afip.ElectronicBilling.createVoucher(vd);
