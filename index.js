@@ -61,7 +61,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-09-EXTRACTO-FECHA-PERIODO";
+const APP_VERSION = "2026-10-FACTURA-A";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -75,7 +75,7 @@ const PUNTO_VENTA_ENV = Number(process.env.PUNTO_VENTA || 0);
 const PRODUCTION = String(process.env.PRODUCTION || "true").toLowerCase() === "true";
 const PORT = Number(process.env.PORT || 3000);
 
-const CBTE_TIPO_REAL = 51; // Factura M en ARCA (se muestra como "A" en emails/display)
+const CBTE_TIPO_REAL = 1; // Factura A (hasta oct-2026 se emitía Factura M = 51)
 const ITEMS_POR_FACTURA = 25;
 const PUBLIC_URL = String(process.env.PUBLIC_URL || "https://api-mercadolimpio.onrender.com").replace(/\/+$/, "");
 const ENABLE_PADRON_10 = String(process.env.ENABLE_PADRON_10 || "false").toLowerCase() === "true";
@@ -93,11 +93,32 @@ if (GEMINI_API_KEY) {
 
 const EMISOR = {
   nombreVisible: "MERCADO LIMPIO DISTRIBUIDORA",
+  razonSocial: "SANTAMARIA PABLO DANIEL",
   domicilio: "Languenhein 1095 - Longchamps, Buenos Aires",
   condicionIVA: "IVA Responsable Inscripto",
-  leyenda: "OPERACIÓN SUJETA A RETENCIÓN",
   condicionVentaDefault: "Transferencia Bancaria",
 };
+
+// Letra y código ARCA de cada tipo de comprobante que maneja el sistema
+const TIPOS_CBTE = {
+  1:  { letra: "A", cod: "01", nombre: "FACTURA",          prefijo: "FA" },
+  3:  { letra: "A", cod: "03", nombre: "NOTA DE CRÉDITO",  prefijo: "NC" },
+  51: { letra: "M", cod: "51", nombre: "FACTURA",          prefijo: "FA" },
+  53: { letra: "M", cod: "53", nombre: "NOTA DE CRÉDITO",  prefijo: "NC" },
+};
+function infoTipoCbte(tipo) {
+  return TIPOS_CBTE[Number(tipo)] || TIPOS_CBTE[CBTE_TIPO_REAL];
+}
+// RG 1575: leyenda obligatoria sólo en comprobantes clase M
+const LEYENDA_CLASE_M = "OPERACIÓN SUJETA A RETENCIÓN";
+// RG 5003 (Ley 27.618): leyenda obligatoria en Factura A emitida a monotributistas
+const LEYENDA_MONOTRIBUTO = "El crédito fiscal discriminado en el presente comprobante, sólo podrá ser computado a efectos del Régimen de Sostenimiento e Inclusión Fiscal para Pequeños Contribuyentes de la Ley Nº 27.618";
+function leyendasComprobante(tipo, condicionIvaReceptorId) {
+  const out = [];
+  if (infoTipoCbte(tipo).letra === "M") out.push(LEYENDA_CLASE_M);
+  if (Number(condicionIvaReceptorId) === 6) out.push(LEYENDA_MONOTRIBUTO);
+  return out;
+}
 
 function log(...args) { if (DEBUG) console.log(...args); }
 function errlog(...args) { console.error(...args); }
@@ -312,21 +333,63 @@ function normalizePadronDetails(padron, cuitCliente) {
   return { nombre: nombre || base.nombre, domicilioAfip: domicilio || "", condicionIVA: "IVA Responsable Inscripto" };
 }
 
+// Códigos ARCA de CondicionIVAReceptorId (FEParamGetCondicionIvaReceptor)
+const CONDICION_IVA_TXT = {
+  1: "IVA Responsable Inscripto",
+  4: "IVA Sujeto Exento",
+  5: "Consumidor Final",
+  6: "Responsable Monotributo",
+};
+const CONDICION_IVA_ID_POR_TXT = Object.fromEntries(Object.entries(CONDICION_IVA_TXT).map(([id, t]) => [t, Number(id)]));
+const CONDICIONES_VALIDAS_CLASE_A = new Set([1, 6]);
+
+// Lee la constancia de inscripción (getPersona_v2) y determina la condición IVA.
+// id null = no se pudo determinar (constancia con error o incompleta).
+function condicionIvaDesdeConstancia(p) {
+  const arr = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
+  if (!p) return { id: null, detalle: "sin constancia" };
+  const dm = p.datosMonotributo;
+  const rg = p.datosRegimenGeneral;
+  const impMono = arr(dm?.impuesto).map((i) => Number(i?.idImpuesto));
+  const impRG = arr(rg?.impuesto).map((i) => Number(i?.idImpuesto));
+  const errores = arr(p.errorConstancia?.error).map(String);
+  if (dm && (impMono.includes(20) || dm.categoriaMonotributo)) {
+    const cat = dm.categoriaMonotributo?.descripcionCategoria || "";
+    return { id: 6, detalle: `Monotributo ${cat}`.trim() };
+  }
+  if (impRG.includes(30)) return { id: 1, detalle: "IVA (impuesto 30)" };
+  if (impRG.includes(32)) return { id: 4, detalle: "IVA exento (impuesto 32)" };
+  if (errores.length) return { id: null, detalle: `constancia con error: ${errores.join(" | ")}` };
+  if (p.datosGenerales) return { id: 5, detalle: "sin IVA ni monotributo" };
+  return { id: null, detalle: "constancia incompleta" };
+}
+
+// Factura A sólo admite receptores RI o monotributistas. Si el padrón no permite
+// determinarlo se asume RI (criterio histórico). CF/exento → corresponde Factura B.
+function condicionIvaReceptorParaClaseA(rec, cuit) {
+  const id = Number(rec?.condicionIvaId || 0);
+  if (!rec?.condicionConfirmada || !id) return 1;
+  if (CONDICIONES_VALIDAS_CLASE_A.has(id)) return id;
+  throw new Error(`El CUIT ${cuit} figura en ARCA como "${CONDICION_IVA_TXT[id] || id}": no corresponde Factura A (sería Factura B). No se emitió.`);
+}
+
 const padronCache = new Map();
 const PADRON_TTL_MS = 12 * 60 * 60 * 1000;
 
-async function getReceptorDesdePadron(cuitCliente) {
+async function getReceptorDesdePadron(cuitCliente, { fresco = false } = {}) {
   const cuitStr = onlyDigits(cuitCliente);
   const cuitNum = Number(cuitStr);
-  const base = { nombre: `CUIT ${cuitCliente}`, domicilioAfip: "", condicionIVA: "IVA Responsable Inscripto" };
+  const nombreBase = `CUIT ${cuitCliente}`;
+  const base = { nombre: nombreBase, domicilioAfip: "", condicionIVA: CONDICION_IVA_TXT[1], condicionIvaId: null, condicionConfirmada: false, detallePadron: "" };
   if (!cuitStr || cuitStr.length !== 11) return base;
 
   // 1) Caché en memoria (12hs) — evita viajes a Supabase dentro de la misma corrida
   const cached = padronCache.get(cuitStr);
-  if (cached && Date.now() < cached.exp) return cached.data;
+  if (!fresco && cached && Date.now() < cached.exp) return { ...cached.data };
 
-  // 2) Caché persistente en Supabase (30 días) — evita requests a AFIPSDK entre corridas
-  if (supabase) {
+  // 2) Caché persistente en Supabase (30 días) — evita requests a AFIPSDK entre corridas.
+  //    Sólo se guardan ahí datos con condición IVA confirmada por la constancia.
+  if (supabase && !fresco) {
     try {
       const hace30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const { data: row } = await supabase
@@ -335,60 +398,66 @@ async function getReceptorDesdePadron(cuitCliente) {
         .eq("cuit", cuitStr)
         .gte("cached_at", hace30dias)
         .maybeSingle();
-      if (row) {
-        const fromDb = { nombre: row.nombre || base.nombre, domicilioAfip: row.domicilio_afip || "", condicionIVA: row.condicion_iva || base.condicionIVA };
+      const idCache = CONDICION_IVA_ID_POR_TXT[row?.condicion_iva];
+      if (row && row.nombre && idCache) {
+        const fromDb = { nombre: row.nombre, domicilioAfip: row.domicilio_afip || "", condicionIVA: row.condicion_iva, condicionIvaId: idCache, condicionConfirmada: true, detallePadron: "caché" };
         padronCache.set(cuitStr, { data: fromDb, exp: Date.now() + PADRON_TTL_MS });
-        return fromDb;
+        return { ...fromDb };
       }
     } catch (e) { /* fallo silencioso: continúa con AFIPSDK */ }
   }
 
-  // 3) Consulta a AFIPSDK (consume requests del plan)
-  let resultado = null;
-
+  // 3) Constancia de inscripción: nombre, domicilio fiscal y condición IVA en un solo request
+  const final = { ...base };
   try {
-    const p13 = await afip.RegisterScopeThirteen.getTaxpayerDetails(cuitNum);
-    const r13 = normalizePadronDetails(p13, cuitCliente);
-    if (r13.nombre && r13.nombre !== base.nombre) base.nombre = r13.nombre;
-    if (r13.domicilioAfip) resultado = r13;
-  } catch (e) { if (DEBUG) errlog("PADRON A13 error:", e?.message || e); }
-
-  if (!resultado && ENABLE_PADRON_10 && afip.RegisterScopeTen?.getTaxpayerDetails) {
-    try {
-      const p10 = await afip.RegisterScopeTen.getTaxpayerDetails(cuitNum);
-      const r10 = normalizePadronDetails(p10, cuitCliente);
-      if (r10.nombre && r10.nombre !== base.nombre) base.nombre = r10.nombre;
-      if (r10.domicilioAfip) resultado = r10;
-    } catch (e) { if (DEBUG) errlog("PADRON A10 error:", e?.message || e); }
-  }
-
-  if (!resultado) {
-    try {
-      const svc = afip.RegisterInscriptionProof || afip.InscriptionProof || afip.RegistrationProof || null;
-      if (svc && typeof svc.getTaxpayerDetails === "function") {
-        const pc = await svc.getTaxpayerDetails(cuitNum);
-        const rc = normalizePadronDetails(pc, cuitCliente);
-        if (rc.nombre && rc.nombre !== base.nombre) base.nombre = rc.nombre;
-        if (rc.domicilioAfip) resultado = rc;
+    const svc = afip.RegisterInscriptionProof || afip.InscriptionProof || afip.RegistrationProof || null;
+    if (svc && typeof svc.getTaxpayerDetails === "function") {
+      const pc = await svc.getTaxpayerDetails(cuitNum);
+      const rc = normalizePadronDetails(pc, cuitCliente);
+      if (rc.nombre && rc.nombre !== nombreBase) final.nombre = rc.nombre;
+      if (rc.domicilioAfip) final.domicilioAfip = rc.domicilioAfip;
+      const cond = condicionIvaDesdeConstancia(pc);
+      final.detallePadron = cond.detalle;
+      if (cond.id) {
+        final.condicionIvaId = cond.id;
+        final.condicionIVA = CONDICION_IVA_TXT[cond.id];
+        final.condicionConfirmada = true;
       }
-    } catch (e) { if (DEBUG) errlog("CONSTANCIA error:", e?.message || e); }
+    }
+  } catch (e) {
+    final.detallePadron = `constancia falló: ${e?.message || e}`;
+    errlog(`CONSTANCIA error ${cuitStr}:`, e?.message || e);
   }
 
-  const final = resultado || base;
+  // 4) Padrón A13 como respaldo si la constancia no trajo nombre o domicilio
+  if (final.nombre === nombreBase || !final.domicilioAfip) {
+    try {
+      const p13 = await afip.RegisterScopeThirteen.getTaxpayerDetails(cuitNum);
+      const r13 = normalizePadronDetails(p13, cuitCliente);
+      if (final.nombre === nombreBase && r13.nombre && r13.nombre !== nombreBase) final.nombre = r13.nombre;
+      if (!final.domicilioAfip && r13.domicilioAfip) final.domicilioAfip = r13.domicilioAfip;
+    } catch (e) { errlog(`PADRON A13 error ${cuitStr}:`, e?.message || e); }
+  }
+
+  if (!final.condicionConfirmada) {
+    console.warn(`⚠️ [Padrón] ${cuitStr}: condición IVA no determinada (${final.detallePadron}) → se asume RI`);
+  }
+
   padronCache.set(cuitStr, { data: final, exp: Date.now() + PADRON_TTL_MS });
 
-  // Guardar en Supabase para las próximas corridas
-  if (supabase && final.nombre !== base.nombre) {
+  if (supabase && final.condicionConfirmada && final.nombre !== nombreBase) {
     supabase.from("padron_cache").upsert({
       cuit: cuitStr,
       nombre: final.nombre,
       domicilio_afip: final.domicilioAfip || "",
-      condicion_iva: final.condicionIVA || "IVA Responsable Inscripto",
+      condicion_iva: final.condicionIVA,
       cached_at: new Date().toISOString()
-    }, { onConflict: "cuit" }).then(() => {}).catch(() => {});
+    }, { onConflict: "cuit" }).then(({ error }) => {
+      if (error) console.warn(`⚠️ [padron_cache] ${cuitStr}:`, error.message);
+    });
   }
 
-  return final;
+  return { ...final };
 }
 
 // ============================
@@ -748,8 +817,11 @@ const LOGO_DATA_URL = logoPathToDataUrl(LOGO_PATH);
 // ============================
 // HTML FACTURA
 // ============================
-function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total, cae, caeVtoISO, condicionVenta, qrDataUrl, isPreview = false, notaFactura = "", refBanco = "", refFechaTransf = "", subtotalBruto = 0, descuentoPct = 0, descuentoImporte = 0, totalFinal = 0 }) {
+function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total, cae, caeVtoISO, condicionVenta, qrDataUrl, isPreview = false, notaFactura = "", refBanco = "", refFechaTransf = "", subtotalBruto = 0, descuentoPct = 0, descuentoImporte = 0, totalFinal = 0, cbteTipo = CBTE_TIPO_REAL }) {
   const pvStr = pad(pv, 5), nroStr = pad(nro, 8);
+  const tipoInfo = infoTipoCbte(cbteTipo);
+  const condIdRec = Number(receptor?.condicionIvaId || CONDICION_IVA_ID_POR_TXT[receptor?.condicionIVA] || 0);
+  const leyendas = leyendasComprobante(cbteTipo, condIdRec);
   const fechaAR = fechaISO.split("-").reverse().join("/");
   const caeVtoAR = caeVtoISO ? String(caeVtoISO).split("-").reverse().join("/") : "VISTA PREVIA";
   const caeText = cae || "VISTA PREVIA";
@@ -773,7 +845,7 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
     : `<div class="muted">Domicilio: <strong>${safeText(domMain)}</strong></div>`;
   const showDesc = Number(descuentoImporte || 0) > 0 && Number(subtotalBruto || 0) > 0;
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Factura A ${pvStr}-${nroStr}</title>
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Factura ${tipoInfo.letra} ${pvStr}-${nroStr}</title>
 <style>
 * { box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
 body { margin: 0; color: #0f172a; background: #ffffff; }
@@ -782,8 +854,9 @@ body { margin: 0; color: #0f172a; background: #ffffff; }
 .header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 18px; }
 .header-left { flex: 1; padding: 22px 24px; border-right: 1px solid #e2e8f0; }
 .header-right { flex: 1; padding: 22px 24px; position: relative; text-align: right; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); }
-.letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 52px; height: 52px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; align-items: center; justify-content: center; z-index: 10; }
-.letter { font-size: 34px; font-weight: 900; color: #1e293b; margin: 0; }
+.letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 58px; height: 64px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+.letter { font-size: 34px; font-weight: 900; color: #1e293b; margin: 0; line-height: 1; }
+.letter-cod { font-size: 9px; font-weight: 700; color: #1e293b; margin-top: 3px; letter-spacing: 0.3px; }
 .title { font-weight: 900; font-size: 26px; color: #1e293b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .muted { color: #475569; font-size: 11px; margin: 4px 0; line-height: 1.5; }
 .muted strong { color: #1e293b; }
@@ -812,11 +885,11 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
   <div class="top-accent"></div>
   ${isPreview ? `<div style="background:#fef08a; padding:10px; text-align:center; font-weight:bold; color:#a16207; margin-bottom:15px; border-radius:8px;">MODO VISTA PREVIA (AÚN NO AUTORIZADO POR ARCA)</div>` : ""}
   <div class="header-box">
-    <div class="letter-box"><div class="letter">A</div></div>
+    <div class="letter-box"><div class="letter">${tipoInfo.letra}</div><div class="letter-cod">COD. ${tipoInfo.cod}</div></div>
     <div class="header-left">
       ${LOGO_DATA_URL ? `<div style="display:flex; align-items:center; gap:14px; margin-bottom:10px;"><img src="${LOGO_DATA_URL}" alt="Logo" style="height:64px; width:auto; object-fit:contain; display:block;" /><div style="border-left:1px solid #e2e8f0; height:42px;"></div></div>` : ""}
       <div class="title" style="text-align: left; font-size: 22px;">${safeText(EMISOR.nombreVisible)}</div>
-      <div class="muted">Razón Social: <strong>${safeText(EMISOR.nombreVisible)}</strong></div>
+      <div class="muted">Razón Social: <strong>${safeText(EMISOR.razonSocial)}</strong></div>
       <div class="muted">Domicilio Comercial: <strong>${safeText(EMISOR.domicilio)}</strong></div>
       <div class="muted">Condición frente al IVA: <strong>${safeText(EMISOR.condicionIVA)}</strong></div>
     </div>
@@ -874,14 +947,29 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
       <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>
     </div>
   </div>
-  <div class="leyenda">${safeText(EMISOR.leyenda)}</div>
+  ${leyendas.map(l => `<div class="leyenda">${safeText(l)}</div>`).join("")}
 </div></body></html>`;
 }
 
 // ============================
 // ROUTES
 // ============================
-app.get("/health", (req, res) => res.json({ ok: true, version: APP_VERSION, iaIntegrada: !!geminiModel, supabase: !!supabase }));
+app.get("/health", (req, res) => res.json({ ok: true, version: APP_VERSION, cbteTipo: CBTE_TIPO_REAL, iaIntegrada: !!geminiModel, supabase: !!supabase }));
+
+// Diagnóstico: qué condición IVA ve el sistema para un CUIT (?fresco=1 saltea cachés)
+app.get("/padron/:cuit", async (req, res) => {
+  const cuit = onlyDigits(req.params.cuit);
+  if (cuit.length !== 11) return res.status(400).json({ ok: false, message: "CUIT inválido" });
+  try {
+    const rec = await getReceptorDesdePadron(cuit, { fresco: req.query.fresco === "1" });
+    let facturaA;
+    try { facturaA = { ok: true, condicionIvaReceptorId: condicionIvaReceptorParaClaseA(rec, cuit) }; }
+    catch (e) { facturaA = { ok: false, motivo: e.message }; }
+    res.json({ ok: true, cuit, ...rec, facturaA });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e?.message });
+  }
+});
 
 // ── POST /importar-comprobante-afip ────────────────────────────
 // Importa a Supabase una factura que existe en AFIP pero no en la DB local
@@ -896,15 +984,17 @@ app.post("/importar-comprobante-afip", async (req, res) => {
     const total = Number(req.body.total || 0);
     if (!nro || !cuit || !total) return res.status(400).json({ ok: false, message: "Faltan nro, cuit_cliente o total" });
 
+    const tipo  = Number(req.body.cbte_tipo || CBTE_TIPO_REAL);
+
     // Verificar que no existe ya
-    const comp = buildComprobanteLabelByTipo(CBTE_TIPO_REAL, pv, nro);
+    const comp = buildComprobanteLabelByTipo(tipo, pv, nro);
     const { data: existe } = await supabase.from("facturas").select("comprobante").eq("comprobante", comp).limit(1);
     if (existe?.length) return res.json({ ok: true, message: "Ya existe en Supabase", comprobante: comp, ya_existia: true });
 
     // Obtener CAE desde AFIP
     let cae = "", caeVto = "";
     try {
-      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, CBTE_TIPO_REAL);
+      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, tipo);
       cae    = String(info?.CAE || "");
       caeVto = info?.CAEFchVto
         ? `${info.CAEFchVto.slice(0,4)}-${info.CAEFchVto.slice(4,6)}-${info.CAEFchVto.slice(6,8)}`
@@ -923,7 +1013,7 @@ app.post("/importar-comprobante-afip", async (req, res) => {
       anio: Number(fecha.split("-")[0]),
       mes:  Number(fecha.split("-")[1]),
       comprobante: comp,
-      cbte_tipo: CBTE_TIPO_REAL,
+      cbte_tipo: tipo,
       nro_factura: nro,
       punto_venta: pv,
       cae,
@@ -982,9 +1072,10 @@ app.get("/ver-factura/:comprobante", async (req, res) => {
       };
     });
 
+    const tipoRow = Number(f.cbte_tipo || inferCbteTipoFromComprobante(f.comprobante));
     const qrPayload = {
       ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
-      tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+      tipoCmp: tipoRow, nroCmp: nro, importe: impTotal,
       moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(f.cuit_cliente),
       tipoCodAut: "E", codAut: Number(f.cae || 0)
     };
@@ -1002,7 +1093,7 @@ app.get("/ver-factura/:comprobante", async (req, res) => {
       neto: impNeto, iva: impIVA, total: impTotal,
       cae: f.cae || "", caeVtoISO: "",
       condicionVenta: f.condicion_venta || "Transferencia Bancaria",
-      qrDataUrl, isPreview: false,
+      qrDataUrl, isPreview: false, cbteTipo: tipoRow,
       refBanco: String(f.referencia_bancaria || ""),
       refFechaTransf: f.fecha_transferencia_banco ? String(f.fecha_transferencia_banco).split("-").reverse().join("/") : ""
     });
@@ -1368,6 +1459,12 @@ app.post("/facturar", async (req, res) => {
     }
 
     const rec = await getReceptorDesdePadron(cuitCliente);
+    let condIvaReceptorId;
+    try {
+      condIvaReceptorId = condicionIvaReceptorParaClaseA(rec, cuitCliente);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
 
     const subtotalCalc = sumItemsBruto(allItems);
     let factor = 1;
@@ -1465,7 +1562,7 @@ app.post("/facturar", async (req, res) => {
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
           Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
-          CondicionIVAReceptorId: 1  // RG 5.616 obligatorio desde 01/12/2026
+          CondicionIVAReceptorId: condIvaReceptorId  // RG 5.616
         };
         try {
           result = await afip.ElectronicBilling.createVoucher(voucherData);
@@ -1509,7 +1606,7 @@ app.post("/facturar", async (req, res) => {
         receptor: {
           cuit: cuitCliente,
           nombre: rec.nombre,
-          condicionIVA: rec.condicionIVA,
+          condicionIVA: CONDICION_IVA_TXT[condIvaReceptorId],
           domicilioAfip: rec.domicilioAfip,
           domicilioRemito: domicilioRemitoIn
         },
@@ -1664,7 +1761,7 @@ app.post("/regenerar-pdf", async (req, res) => {
 
     let query = supabase.from("facturas").select("*");
     if (comprobante) query = query.eq("comprobante", comprobante);
-    else if (nroQuery) query = query.eq("nro_factura", nroQuery).eq("punto_venta", pvQuery);
+    else if (nroQuery) query = query.eq("nro_factura", nroQuery).eq("punto_venta", pvQuery).eq("cbte_tipo", Number(req.body.cbte_tipo || CBTE_TIPO_REAL));
     else return res.status(400).json({ ok: false, message: "Indicá comprobante o nro_factura" });
 
     const { data: rows, error: dbErr } = await query.limit(1);
@@ -1696,10 +1793,12 @@ app.post("/regenerar-pdf", async (req, res) => {
     const impIVA   = round2(impTotal - impNeto);
     const fecha    = String(f.fecha || todayISO());
 
+    const tipoRow = Number(f.cbte_tipo || inferCbteTipoFromComprobante(f.comprobante));
+
     // Consultar vencimiento CAE en AFIP (best-effort)
     let caeVtoISO = "";
     try {
-      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, CBTE_TIPO_REAL);
+      const info = await afip.ElectronicBilling.getVoucherInfo(nro, pv, tipoRow);
       caeVtoISO = info?.CAEFchVto
         ? `${info.CAEFchVto.slice(0,4)}-${info.CAEFchVto.slice(4,6)}-${info.CAEFchVto.slice(6,8)}`
         : "";
@@ -1708,7 +1807,7 @@ app.post("/regenerar-pdf", async (req, res) => {
     // Reconstruir QR
     const qrPayload = {
       ver: 1, fecha, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
-      tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+      tipoCmp: tipoRow, nroCmp: nro, importe: impTotal,
       moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(f.cuit_cliente),
       tipoCodAut: "E", codAut: Number(cae)
     };
@@ -1728,7 +1827,7 @@ app.post("/regenerar-pdf", async (req, res) => {
       neto: impNeto, iva: impIVA, total: impTotal,
       cae, caeVtoISO,
       condicionVenta: f.condicion_venta || "Transferencia Bancaria",
-      qrDataUrl, isPreview: false,
+      qrDataUrl, isPreview: false, cbteTipo: tipoRow,
       refBanco: String(f.referencia_bancaria || ""),
       refFechaTransf: f.fecha_transferencia_banco ? String(f.fecha_transferencia_banco).split("-").reverse().join("/") : ""
     });
@@ -2204,6 +2303,7 @@ async function guardarFacturaEnDB({
     anio: Number(String(fecha).split("-")[0]),
     mes: Number(String(fecha).split("-")[1]),
     comprobante: buildComprobanteLabelByTipo(CBTE_TIPO_REAL, pv, nro),
+    cbte_tipo: CBTE_TIPO_REAL,
     nro_factura: nro,
     punto_venta: pv,
     cae: String(cae),
@@ -2753,20 +2853,23 @@ const NC_TIPO_MAP = {
 };
 
 function inferCbteTipoFromComprobante(comp = "") {
-  const s = String(comp || "").toUpperCase();
-  if (s.startsWith("NC-")) return CBTE_TIPO_REAL === 51 ? 53 : 3;
-  
-  // Si el texto dice "A-" pero tu motor está en modo 51 (Factura M), forzamos a que use el 51.
-  if (s.startsWith("A-")) return CBTE_TIPO_REAL === 51 ? 51 : 1;
-  
+  const s = String(comp || "").toUpperCase().replace(/^FA-/, "");
+  if (s.startsWith("NC-M")) return 53;
+  if (s.startsWith("NC-")) return 3;
+  if (s.startsWith("A-")) return 1;
+  if (s.startsWith("M-")) return 51;
   if (s.startsWith("B-")) return 6;
   if (s.startsWith("C-")) return 11;
-  if (s.startsWith("M-")) return 51;
   return CBTE_TIPO_REAL;
-} 
+}
 
 function inferNcTipoFromOriginal(originalCbteTipo) {
-  return NC_TIPO_MAP[Number(originalCbteTipo)] || 53;
+  return NC_TIPO_MAP[Number(originalCbteTipo)] || NC_TIPO_MAP[CBTE_TIPO_REAL];
+}
+
+// Rótulo del extracto: "A-00005-00000001" / "M-00005-00000632"
+function labelExtracto(cbteTipo, pv, nro) {
+  return `${infoTipoCbte(cbteTipo).letra}-${pad(pv, 5)}-${pad(nro, 8)}`;
 }
 
 function buildComprobanteLabelByTipo(cbteTipo, pv, nro) {
@@ -2777,14 +2880,14 @@ function buildComprobanteLabelByTipo(cbteTipo, pv, nro) {
     8: "NC-B",
     11: "FA-C",
     13: "NC-C",
-    51: "FA-A",
-    53: "NC-A"
+    51: "FA-M",
+    53: "NC-M"
   };
   const pref = map[Number(cbteTipo)] || "CBTE";
   return `${pref}-${pad(pv, 5)}-${pad(nro, 8)}`;
 }
 
-async function buscarComprobanteGuardado({ comprobante, pv, nro }) {
+async function buscarComprobanteGuardado({ comprobante, pv, nro, tipo }) {
   const compNorm = String(comprobante || "").trim();
 
   if (supabase) {
@@ -2802,15 +2905,29 @@ async function buscarComprobanteGuardado({ comprobante, pv, nro }) {
         data = q.data;
         error = q.error;
       } else if (pv && nro) {
+        // El mismo PV+nro existe en la serie M (histórica) y en la A: priorizar el tipo pedido
         const q = await supabase
           .from("facturas")
           .select("*")
           .eq("punto_venta", Number(pv))
           .eq("nro_factura", Number(nro))
+          .eq("cbte_tipo", Number(tipo || CBTE_TIPO_REAL))
           .limit(1)
           .maybeSingle();
         data = q.data;
         error = q.error;
+        if (!data && !error && !tipo) {
+          const q2 = await supabase
+            .from("facturas")
+            .select("*")
+            .eq("punto_venta", Number(pv))
+            .eq("nro_factura", Number(nro))
+            .gt("total", 0)
+            .limit(1)
+            .maybeSingle();
+          data = q2.data;
+          error = q2.error;
+        }
       }
 
       if (error) throw error;
@@ -2958,10 +3075,13 @@ function buildNotaCreditoHtml({
   total,
   originalComprobante,
   originalCae,
-  motivo
+  motivo,
+  cbteTipo = NC_TIPO_MAP[CBTE_TIPO_REAL]
 }) {
   const pvStr = pad(pv, 5);
   const nroStr = pad(nro, 8);
+  const tipoInfo = infoTipoCbte(cbteTipo);
+  const leyendas = leyendasComprobante(cbteTipo, CONDICION_IVA_ID_POR_TXT[receptor?.condicionIVA]);
   const fechaAR = String(fechaISO || "").split("-").reverse().join("/");
   const caeVtoAR = String(caeVtoISO || "").split("-").reverse().join("/");
   const domMain = String(receptor?.domicilioAfip || receptor?.domicilioRemito || "Domicilio no informado");
@@ -3000,15 +3120,18 @@ function buildNotaCreditoHtml({
       <div class="head">
         <div class="col">
           <div class="title">NOTA DE CRÉDITO</div>
-          <div class="muted">Razón Social: <span class="strong">${safeText(emisor.nombreVisible)}</span></div>
+          <div class="muted"><span class="strong">${safeText(emisor.nombreVisible)}</span></div>
+          <div class="muted">Razón Social: <span class="strong">${safeText(emisor.razonSocial)}</span></div>
           <div class="muted">Domicilio Comercial: <span class="strong">${safeText(emisor.domicilio)}</span></div>
           <div class="muted">Condición frente al IVA: <span class="strong">${safeText(emisor.condicionIVA)}</span></div>
         </div>
         <div class="col">
-          <div class="title">M</div>
+          <div class="title">${tipoInfo.letra} <span style="font-size:11px; font-weight:700;">COD. ${tipoInfo.cod}</span></div>
           <div class="muted">Punto de Venta: <span class="strong">${pvStr}</span> &nbsp;&nbsp; Comp. Nro: <span class="strong">${nroStr}</span></div>
           <div class="muted">Fecha de Emisión: <span class="strong">${safeText(fechaAR)}</span></div>
           <div class="muted">CUIT Emisor: <span class="strong">${safeText(CUIT_DISTRIBUIDORA)}</span></div>
+          <div class="muted">Ingresos Brutos: <span class="strong">${safeText(CUIT_DISTRIBUIDORA)}</span></div>
+          <div class="muted">Inicio de Actividades: <span class="strong">01/01/2020</span></div>
           <div class="muted">CAE: <span class="strong">${safeText(cae)}</span></div>
         </div>
       </div>
@@ -3045,7 +3168,7 @@ function buildNotaCreditoHtml({
       </div>
     </div>
 
-    <div class="footer">${safeText(emisor.leyenda)}</div>
+    ${leyendas.map(l => `<div class="footer">${safeText(l)}</div>`).join("")}
   </div>
 </body>
 </html>`;
@@ -3065,10 +3188,12 @@ app.post("/anular-comprobante", async (req, res) => {
       });
     }
 
+    const tipoPedido = Number(req.body.cbteTipo || 0) || (comprobanteOriginal ? inferCbteTipoFromComprobante(comprobanteOriginal) : 0);
     let original = await buscarComprobanteGuardado({
       comprobante: comprobanteOriginal,
       pv: pvOriginal,
-      nro: nroOriginal
+      nro: nroOriginal,
+      tipo: tipoPedido || undefined
     });
 
     // Si no está en Supabase, creamos un objeto mínimo y consultamos padrón ARCA
@@ -3090,7 +3215,8 @@ app.post("/anular-comprobante", async (req, res) => {
         nombreCliente: datosPadron.nombre, // ¡Acá toma el nombre real de AFIP!
         domicilio: datosPadron.domicilioAfip, // ¡Acá toma el domicilio de AFIP!
         total: req.body.montoTotal || 0,
-        cbteTipo: 51
+        // Fuera de la base sólo pueden quedar comprobantes viejos (serie M)
+        cbteTipo: tipoPedido || 51
       };
 
       if (!original.nroFactura || !original.total || !original.cuitCliente) {
@@ -3103,6 +3229,10 @@ app.post("/anular-comprobante", async (req, res) => {
 
     const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
     const cbteTipoNC = inferNcTipoFromOriginal(cbteTipoOriginal);
+
+    // La NC no se bloquea por padrón (anula algo ya emitido): si la condición no es RI/monotributo, va RI
+    const recNC = await getReceptorDesdePadron(original.cuitCliente);
+    const condIvaNC = CONDICIONES_VALIDAS_CLASE_A.has(Number(recNC.condicionIvaId)) ? Number(recNC.condicionIvaId) : 1;
 
     console.log(`🔍 [NC] Buscando PV para NC tipo ${cbteTipoNC} (original tipo ${cbteTipoOriginal})...`);
     const pvNc = await getPtoVentaSeguro();
@@ -3152,7 +3282,7 @@ app.post("/anular-comprobante", async (req, res) => {
         MonId: "PES",
         MonCotiz: 1,
         Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
-        CondicionIVAReceptorId: 1,  // RG 5.616 obligatorio desde 01/12/2026
+        CondicionIVAReceptorId: condIvaNC,  // RG 5.616
         CbtesAsoc: [{
           Tipo: cbteTipoOriginal,
           PtoVta: Number(original.puntoVenta),
@@ -3232,8 +3362,8 @@ app.post("/anular-comprobante", async (req, res) => {
       receptor: {
         cuit: original.cuitCliente,
         nombre: original.nombreCliente,
-        domicilioAfip: original.domicilio || "",
-        condicionIVA: "IVA Responsable Inscripto"
+        domicilioAfip: original.domicilio || recNC.domicilioAfip || "",
+        condicionIVA: CONDICION_IVA_TXT[condIvaNC]
       },
       fechaISO: fecha,
       pv: pvNc,
@@ -3244,7 +3374,8 @@ app.post("/anular-comprobante", async (req, res) => {
       total: totalOriginal,
       originalComprobante: original.comprobante || buildComprobanteLabelByTipo(cbteTipoOriginal, original.puntoVenta, original.nroFactura),
       originalCae: original.cae || "",
-      motivo
+      motivo,
+      cbteTipo: cbteTipoNC
     });
 
     // ── PDF es opcional: si falla, la NC ya está guardada en DB ─────
@@ -4342,22 +4473,39 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       continue;
     }
 
-    // Deduplicación: evitar doble facturación
+    // Deduplicación: evitar doble facturación.
+    // Con referencia bancaria se compara sólo por referencia (exacto: dos transferencias
+    // del mismo cliente por el mismo monto son facturas distintas). Sin referencia, por
+    // CUIT + monto (el total facturado = monto transferido) en el mes de la transferencia
+    // o el siguiente (la factura puede caer en el mes siguiente por la ventana AFIP).
+    const referencia = String(t.referencia || "").trim();
     if (supabase) {
       try {
-        const montoConIva = round2(monto * 1.21);
-        const partesFecha = fechaTransf.split("-").map(Number);
-        const mesTransf   = partesFecha[1] || (new Date().getMonth() + 1);
-        const anioTransf  = partesFecha[0] || new Date().getFullYear();
-        const { data: dup } = await supabase
-          .from("facturas")
-          .select("comprobante, total")
-          .eq("cuit_cliente", cuitCliente)
-          .eq("mes",  mesTransf)
-          .eq("anio", anioTransf)
-          .gte("total", montoConIva - 2)
-          .lte("total", montoConIva + 2)
-          .limit(1);
+        let dup = null;
+        if (referencia) {
+          ({ data: dup } = await supabase
+            .from("facturas")
+            .select("comprobante, total")
+            .eq("cuit_cliente", cuitCliente)
+            .eq("referencia_bancaria", referencia)
+            .gt("total", 0)
+            .limit(1));
+        } else {
+          const [anioTransf, mesTransf] = fechaTransf.split("-").map(Number);
+          const desde = `${anioTransf}-${pad(mesTransf, 2)}-01`;
+          const hastaD = new Date(anioTransf, mesTransf + 1, 0);
+          const hasta = `${hastaD.getFullYear()}-${pad(hastaD.getMonth() + 1, 2)}-${pad(hastaD.getDate(), 2)}`;
+          ({ data: dup } = await supabase
+            .from("facturas")
+            .select("comprobante, total")
+            .eq("cuit_cliente", cuitCliente)
+            .gte("fecha", desde)
+            .lte("fecha", hasta)
+            .gte("total", monto - 2)
+            .lte("total", monto + 2)
+            .is("referencia_bancaria", null)
+            .limit(1));
+        }
         if (dup && dup.length > 0) {
           console.warn(`⚠️ [Extracto] OMITIDO (ya facturado): CUIT ${cuitCliente} | $${monto} | ${dup[0].comprobante}`);
           job.resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: dup[0].comprobante, total: dup[0].total, pdfUrl: "" });
@@ -4376,17 +4524,19 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         const montoConIvaP  = round2(monto * 1.21);
         const { data: pendiente } = await supabase
           .from("afip_vouchers_pendientes")
-          .select("id, cae, nro_comprobante, punto_venta")
+          .select("id, cae, nro_comprobante, punto_venta, cbte_tipo")
           .eq("cuit_cliente", cuitCliente)
           .eq("mes",  mesT  || (new Date().getMonth() + 1))
           .eq("anio", anioT || new Date().getFullYear())
           .gte("total", montoConIvaP - 2)
           .lte("total", montoConIvaP + 2)
-          .in("estado", ["afip_ok", "completo"])
+          // "completo" ya está en facturas (lo cubre el dedup de arriba); acá sólo
+          // los que AFIP autorizó pero no llegaron a guardarse
+          .eq("estado", "afip_ok")
           .limit(1);
         if (pendiente && pendiente.length > 0) {
           const p = pendiente[0];
-          const compPnd = `A-${pad(p.punto_venta || pv, 5)}-${pad(p.nro_comprobante || 0, 8)}`;
+          const compPnd = labelExtracto(p.cbte_tipo || CBTE_TIPO_REAL, p.punto_venta || pv, p.nro_comprobante || 0);
           console.warn(`⚠️ [Extracto] OMITIDO (pendiente AFIP OK): CUIT ${cuitCliente} | CAE ${p.cae} | ${compPnd}`);
           job.resultados.push({ ok: true, skipped: true, nombre, cuit: cuitCliente, comprobante: compPnd, total: montoConIvaP, pdfUrl: "" });
           job.progreso++;
@@ -4403,6 +4553,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       const impNeto  = round2(impTotal / 1.21);
       const impIVA   = round2(impTotal - impNeto);
       const rec      = await getReceptorDesdePadron(cuitCliente);
+      const condIvaReceptorId = condicionIvaReceptorParaClaseA(rec, cuitCliente);
 
       // Registrar intención ANTES de llamar a AFIP: si createVoucher OK pero Supabase falla,
       // el registro queda en 'afip_ok' y el dedup lo detecta en la próxima corrida.
@@ -4439,7 +4590,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
           ImpOpEx: 0, ImpIVA: impIVA, ImpTrib: 0,
           MonId: "PES", MonCotiz: 1,
           Iva: [{ Id: 5, BaseImp: impNeto, Importe: impIVA }],
-          CondicionIVAReceptorId: 1  // RG 5.616 obligatorio desde 01/12/2026
+          CondicionIVAReceptorId: condIvaReceptorId  // RG 5.616
         };
         try {
           afipResult = await afip.ElectronicBilling.createVoucher(vd);
@@ -4457,6 +4608,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
           throw afipErr;
         }
       }
+
+      // PDF, QR y base deben llevar la fecha con la que ARCA autorizó (puede haber cambiado en el reintento)
+      fechaFact = fechaFactEfectiva;
 
       // AFIP autorizó — marcar como afip_ok para que el dedup lo detecte si Supabase falla abajo
       if (supabase && _pendienteId) {
@@ -4484,7 +4638,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       }));
 
       const htmlPDF = buildFacturaHtml({
-        receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
+        receptor: { cuit: cuitCliente, nombre: rec.nombre, condicionIVA: CONDICION_IVA_TXT[condIvaReceptorId], domicilioAfip: rec.domicilioAfip, domicilioRemito: "" },
         fechaISO: fechaFact, pv, nro, items: itemsCalc,
         neto: impNeto, iva: impIVA, total: impTotal,
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
@@ -4502,7 +4656,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
-      const comprobante = `A-${pad(pv, 5)}-${pad(nro, 8)}`;
+      const comprobante = labelExtracto(CBTE_TIPO_REAL, pv, nro);
 
       await guardarComprobanteGeneralEnDB({
         comprobante, cbteTipo: CBTE_TIPO_REAL,
