@@ -79,6 +79,27 @@ Datos a confirmar con el contador: el **inicio de actividades (01/01/2020)** y e
 
 ---
 
+## 4 bis. Cómo se arma el detalle de las facturas del extracto
+
+La transferencia trae solo el monto, así que el sistema arma el detalle con criterio mayorista:
+
+- **Artículos Make**: salen de la lista de precios de YASH (sección limpieza, 221 artículos, sin jardín). **Precio de venta = precio de lista × 2, más IVA.**
+- **Otras marcas** (Romyl, Samantha, Todoesponja): 0 a 2 renglones con los precios fijos del catálogo interno.
+- **Cantidades en múltiplos de pack**: 12 si el bulto trae 24 o más; 6 si trae entre 12 y 23; si trae menos, el bulto entero.
+- El total **cierra exacto al centavo** ajustando uno o dos renglones, que pueden apartarse como máximo **±12 %** de su precio de lista.
+- Cantidad de renglones según el monto: 3–4 (hasta $100.000), 4–6 (hasta $300.000), 5–8 (hasta $800.000), 7–10 (más).
+- En facturas chicas (menos de $20.000) puede haber renglones de 1 unidad; en las grandes prácticamente no.
+
+**Cuando llegue una lista nueva de YASH**, desde la carpeta `afip-worker`:
+
+```
+node scripts/importar-lista-make.js "C:\ruta\NUEVA LISTA DE PRECIOS YASH 2026 -13.xlsx"
+```
+
+Eso regenera `data/catalogo-make.json`. Después hay que subir el cambio (commit + push) para que Render lo tome. El margen (×2) se cambia en `lib/items-extracto.js` (`MARGEN_MAKE`).
+
+---
+
 ## 5. Las reglas de fecha (importante para cerrar el mes)
 
 - ARCA acepta facturas con fecha de hasta **5 días corridos hacia atrás**.
@@ -150,6 +171,10 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 ---
 
 ## 8. Registro de cambios
+
+### 19/10/2026 (noche) — Detalle mayorista realista
+- El precio unitario de cada renglón salía de repartir el total al azar (por ejemplo, un escobillón a $64.000). Ahora Make usa la **lista YASH 2026-12 × 2 + IVA** y cantidades en packs (ver sección 4 bis).
+- PDF: la tabla de ítems ya no usa un recorte que algunos visores de celular dibujaban mal (se cortaba la primera fila).
 
 ### 19/10/2026 — Factura A real + Factura B automática
 - El contador confirmó la habilitación para Factura A. **El sistema pasó de Factura M (51) a Factura A (01).**
