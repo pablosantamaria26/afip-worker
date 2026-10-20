@@ -172,6 +172,11 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 
 ## 8. Registro de cambios
 
+### 20/10/2026 — Nuevo diseño del PDF (en prueba, sin publicar)
+- PDF nuevo para A, B, M y NC: logo original, paginación sin límite fijo de renglones, hojas de continuación, totales + CAE + QR siempre juntos en la última hoja, "Página X de N".
+- Nombres de descarga y de adjuntos del tipo `FA-00005-00000001_YAN-XIUYU.pdf`.
+- **No está en producción**: ver sección 11.
+
 ### 20/10/2026 — Rediseño profesional (en prueba, sin publicar)
 - Nueva interfaz celular + PC, foto de remito, clientes recientes, búsqueda avanzada, pendientes, íconos oficiales. **No está en producción**: ver sección 10.
 
@@ -243,7 +248,7 @@ En el link de prueba **emitir, facturar extracto, anular, reenviar email y envia
 - `js/config.js` (**nuevo**): detecta producción o prueba; en prueba simula las escrituras y separa los datos locales.
 - `js/ui.js` (**nuevo**): mes global, indicadores, clientes recientes, resumen de vista previa, pendientes y menú.
 - `js/camara.js` (**nuevo**): foto de remito.
-- `sw.js`: caché v47 con prefijo por entorno; solo borra sus propias cachés.
+- `sw.js`: caché con prefijo por entorno (v48 desde el 20/10, por los nombres de descarga); solo borra sus propias cachés.
 - `manifest.json` + `icons-mercado-limpio/`: íconos oficiales (limón + caja). Se quitó `icon.png` (6,7 MB).
 - Backend: `lib/remito-foto.js` (**nuevo**) y ruta `POST /leer-remito-foto` en `index.js` (solo agrega, no cambia nada existente).
 - Dependencias nuevas: **ninguna**.
@@ -308,8 +313,8 @@ En el link de prueba **emitir, facturar extracto, anular, reenviar email y envia
 
 ### Para pasar a producción (requiere tu aprobación)
 
-1. Publicar el backend: fusionar `afip-worker/rediseno-2026-10` en `main` (solo agrega `/leer-remito-foto`).
-2. Fusionar `FacturacionML/rediseno-2026-10` en `main`. Con el Service Worker v47, los celulares toman la versión nueva al reabrir la app.
+1. Publicar el backend: fusionar `afip-worker/rediseno-2026-10` en `main` (agrega `/leer-remito-foto` y el PDF nuevo de la sección 11).
+2. Fusionar `FacturacionML/rediseno-2026-10` en `main`. Con el Service Worker v48, los celulares toman la versión nueva al reabrir la app.
 3. En producción la simulación se apaga sola: la app detecta la ruta `/FacturacionML/`.
 
 ### Reversión
@@ -324,3 +329,124 @@ En el link de prueba **emitir, facturar extracto, anular, reenviar email y envia
 - **Modo oscuro**: no implementado (mejora secundaria).
 - La facturación no funciona sin conexión, porque ARCA tiene que autorizar cada comprobante. Sin servidor, la app lo indica y en producción no simula emisiones.
 - Cada cambio del frontend necesita subir `CACHE_NAME` en `sw.js` para que los celulares lo tomen.
+
+---
+
+## 11. Nuevo diseño del PDF de comprobantes (EN PRUEBA — no publicado)
+
+**Estado al 20/10/2026: listo para revisión. Producción NO fue modificada.** Las facturas que se emitan hoy siguen saliendo con el PDF anterior hasta que se publique el backend.
+
+### Dónde está
+
+- Backend `afip-worker`, rama `rediseno-2026-10`, commit `2be32b0` (subido a GitHub, **sin fusionar a `main`**, Render no lo publica).
+- Frontend `FacturacionML`, rama `rediseno-2026-10`, commit `887573e` (nombres de descarga). También está en el sitio de prueba `FacturacionML-prueba`.
+- PDFs de prueba generados: carpeta local `C:\Users\Pablo Daniel\Proyectos\Afip-Worker\PDF-pruebas-2026-10\`.
+
+### Archivos
+
+- `lib/pdf-comprobante.js` (**nuevo**): plantilla, paginación, motor PDF y nombres de archivo.
+- `index.js`: `buildFacturaHtml` y `buildNotaCreditoHtml` mantienen **la misma firma y los mismos datos de entrada**. Ahora solo arman los datos y llaman a la plantilla nueva. El QR se genera con más resolución y con borde blanco (zona de silencio). Los adjuntos de email usan el nombre amigable.
+- `assets/logo-mercado-limpio.png`: logo original (`logo.jpeg`) recortado, con fondo transparente y sin deformar. Se guarda también una copia del original (`logo-mercado-limpio-original.jpeg`). Se cargan con una ruta relativa al repo, así funcionan en Render.
+- `assets/fonts/`: tipografías Source Sans 3 y Barlow Semi Condensed (licencia libre OFL), embebidas en el PDF.
+- `package.json`: se declara `puppeteer 10.4.0`, que ya venía instalado a través de `html-pdf-node`. Es el **mismo Chromium de siempre**: no se agrega nada nuevo al servidor.
+- `scripts/probar-pdf.js` y `scripts/verificar-pdf.py`: pruebas automáticas (ver abajo).
+
+### Cómo es el PDF
+
+- **A4, con texto real** (se puede seleccionar y buscar) y QR real de ARCA.
+- **Hoja 1**: logo | datos del emisor | recuadro con letra, código, tipo, punto de venta, número, fecha, CUIT, IIBB e inicio de actividades. Debajo va el panel **Datos del cliente** (CUIT, condición IVA, condición de venta, nombre y domicilio). La franja de **transferencia bancaria** (referencia y fecha) aparece solo si la factura tiene referencia real. Factura manual sin referencia: no aparece.
+- **Tabla según el tipo**:
+  - **B**: Producto, Cant., Precio unit., Subtotal (con IVA incluido).
+  - **A, M y NC**: Producto, Cant., Precio unit., Subtotal neto, Alícuota IVA, Subtotal c/IVA.
+- **Paginación dinámica**: el sistema mide la altura real de cada renglón (las descripciones largas ocupan dos líneas) y llena cada hoja. **No hay límite fijo de 20 o 25 renglones**, y **ningún renglón queda partido** entre dos hojas.
+- **Hojas de continuación**: cabecera compacta con el logo, la letra, el tipo, "Continuación del detalle", el punto de venta, el número, el cliente y el CUIT. El encabezado de la tabla se repite.
+- Al pie de cada hoja que continúa:
+  - recuadro "Continuación de factura", con el aviso de que los totales, el CAE y el QR están en la última hoja;
+  - **Subtotal acumulado**, marcado como *informativo*. Lo calcula el mismo PDF sumando los renglones ya impresos.
+- **Última hoja**: QR + CAE + vencimiento del CAE + **Totales**, siempre juntos, y las leyendas que correspondan:
+  - Ley 27.618 para monotributistas;
+  - Transparencia Fiscal en B;
+  - leyenda de retención en M;
+  - nota "Factura parte X de Y".
+- Si los totales no entran, pasan a una hoja nueva junto con los últimos renglones.
+- **"Página X de N"** en todas las hojas.
+- **Nota de crédito**: título "NOTA DE CRÉDITO", letra y código (03 / 08 / 53), franja "Comprobante asociado" con número, CAE del original y motivo.
+- **Vista previa**: marca de agua "VISTA PREVIA" y recuadro del QR vacío.
+- **Descuento**: subtotal, porcentaje e importe del descuento en el recuadro de totales.
+
+### Nombres de los archivos
+
+| Comprobante | Nombre de descarga / adjunto |
+|---|---|
+| Factura A 5-1 a YAN XIUYU | `FA-00005-00000001_YAN-XIUYU.pdf` |
+| Factura B 5-9 | `FB-00005-00000009_FERRUFINO-VANESA-SOLEDAD.pdf` |
+| Factura M histórica | `FM-00005-00000632_….pdf` |
+| Nota de crédito A | `NC-A-00005-00000002_YAN-XIUYU.pdf` |
+
+- Sin tildes ni símbolos. El nombre del cliente se corta a 40 caracteres. Una NC vieja sin letra en el rótulo queda `NC-00005-…` (no se le inventa la letra).
+- **Solo cambia cómo se presenta**: el archivo en Supabase Storage sigue guardado con su ruta de siempre. La descarga agrega `?download=<nombre>` a la URL y Supabase responde con ese nombre (verificado: `Content-Disposition: attachment; filename=FB-00005-00000009_FERRUFINO-VANESA-SOLEDAD.pdf`).
+- Dónde se aplica:
+  - Email: adjunto de la factura, del reenvío, del PDF regenerado y de la NC.
+  - App: botón de descarga del Historial, del detalle (*Ver PDF* y *Descargar PDF* ahora están separados), de las Últimas facturas y del resultado del Extracto; en la confirmación de emisión, *Compartir* (celular) y *Descargar PDF* (PC).
+  - Los enlaces *Ver* y el link de WhatsApp siguen abriendo el PDF en el navegador.
+
+### Pruebas (20/10/2026)
+
+`node scripts/probar-pdf.js <carpeta>` arma 20 comprobantes con las **funciones reales** de `index.js`, sin levantar el servidor y **sin emitir nada en ARCA**. Después, `python scripts/verificar-pdf.py <carpeta>` revisa cada PDF:
+
+- tamaño A4;
+- "Página X de N" correcto en cada hoja;
+- totales y CAE **solo** en la última hoja;
+- aviso de continuación en las demás;
+- QR presente;
+- ningún texto pisado ni fuera de la hoja;
+- **cada renglón presente una sola vez y en orden**;
+- total y neto iguales a los datos de entrada.
+
+Además se probó que el verificador detecta errores: con un total y un renglón alterados a propósito, marca los dos.
+
+| Caso | Hojas | Resultado |
+|---|---|---|
+| A con 1 ítem / 5 ítems (factura real A-00005-00000001) | 1 / 1 | OK |
+| A con 15 / 20 / 25 / 40 / 60 / 100 ítems | 2 / 2 / 3 / 4 / 5 / 8 | OK |
+| A con razón social y domicilio muy largos | 2 | OK |
+| A con descripciones largas (dos líneas) | 3 | OK |
+| B consumidor final (factura real B-00005-00000009) / B con 30 ítems | 1 / 3 | OK |
+| M histórica | 1 | OK |
+| A a monotributista con descuento | 1 | OK |
+| A manual sin referencia bancaria (sin franja) | 1 | OK |
+| Vista previa (marca de agua, sin QR) | 1 | OK |
+| A "parte 1 de 2" | 3 | OK |
+| NC A / NC B / NC M | 1 / 1 / 1 | OK |
+
+- **QR**: 19 de 19 se leyeron sobre la hoja completa (ZXing, el lector que usan muchas apps de celular) desde 100 dpi en adelante. En todos coinciden la URL oficial `www.arca.gob.ar/fe/qr/`, el CUIT del emisor, el punto de venta, el tipo, el número, el importe y el documento del receptor.
+- **App**: los enlaces de descarga del Historial real llevan el nombre correcto. El detalle sigue siendo accesible, sin superposiciones, en 6 tamaños (320×568 a 1366×768).
+
+### Errores encontrados y corregidos durante el trabajo
+
+- La columna del medio de la cabecera quedaba muy angosta y una factura de 5 ítems ocupaba 2 hojas. Se reorganizó la cabecera.
+- En las hojas de continuación, un nombre de cliente largo se pisaba con "FACTURA". Ahora corta en dos líneas.
+- En el Chromium del servidor, un separador vacío de la tabla estiraba el bloque final. Se reemplazó por un borde.
+- Chromium a veces cortaba la conexión al cerrar ("Target closed"). Se agregó una espera breve y un reintento.
+- **El QR sin borde blanco no lo leían algunos lectores** (OpenCV leía 7 de 19). Con la zona de silencio lo leen todos.
+
+### Pendiente de verificación (requiere publicar o tu autorización)
+
+- Una **emisión real** con el PDF nuevo (generar, guardar en Storage, enviar por email). En las pruebas no se emitió nada en ARCA ni se envió ningún email.
+- Abrir el PDF y escanear el QR con un **iPhone real**: probado con lectores automáticos, falta la prueba física.
+- Tiempo de generación en Render (plan free): localmente se generan 20 PDFs en 19 s (alrededor de 1 s cada uno); en Render puede tardar algo más.
+
+### Limitaciones
+
+- Los PDFs pesan más que antes, por las tipografías y el logo embebidos: **265–440 KB** contra 47–53 KB del anterior (medido en facturas reales de octubre). Entran sin problema como adjunto de email y en Storage.
+- La fecha de inicio de actividades y los Ingresos Brutos salen de los mismos datos que usaba el PDF anterior (`01/01/2020` y el CUIT). Si el contador indica otros valores, se cambian en `datosEmisorPdf()` en `index.js`.
+- Las facturas ya emitidas **no se regeneran**: conservan el PDF con el que se enviaron.
+
+### Para publicar (requiere tu aprobación)
+
+Va junto con el rediseño (sección 10): al fusionar `afip-worker/rediseno-2026-10` en `main`, Render publica el PDF nuevo. No requiere migraciones ni cambios en Supabase.
+
+### Reversión
+
+- Revertir el commit `2be32b0` (o el merge) en `afip-worker`. Vuelve el PDF anterior y los nombres de adjunto anteriores. Las facturas emitidas mientras tanto conservan su PDF.
+- Frontend: revertir `887573e` y subir `CACHE_NAME` en `sw.js`.
