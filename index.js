@@ -45,6 +45,7 @@ async function crearPdfLocal(html, _fileName) {
 // ================================================================
 const { createClient } = require("@supabase/supabase-js");
 const { armarItemsMayoristas } = require("./lib/items-extracto");
+const { leerRemitoFoto, MIMES_OK: MIMES_FOTO_OK } = require("./lib/remito-foto");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
@@ -1163,6 +1164,26 @@ app.post("/leer-remito", upload.array("remito", 10), async (req, res) => {
   } catch (err) {
     (req.files || []).forEach(f => cleanupTempFile(f.path));
     res.status(500).json({ message: "Error", detail: String(err?.message || err) });
+  }
+});
+
+// Foto de remito (cámara del celular): devuelve los datos leídos para REVISIÓN.
+// No emite nada; el frontend carga lo revisado en el circuito normal de /facturar.
+app.post("/leer-remito-foto", upload.array("foto", 6), async (req, res) => {
+  const files = req.files || [];
+  try {
+    if (!geminiModel) return res.status(503).json({ ok: false, message: "La IA no está configurada en el servidor" });
+    if (!files.length) return res.status(400).json({ ok: false, message: "No llegó ninguna foto" });
+    const invalida = files.find(f => !MIMES_FOTO_OK.has(String(f.mimetype).toLowerCase()));
+    if (invalida) return res.status(400).json({ ok: false, message: `Formato no admitido: ${invalida.mimetype}. Usá JPG, PNG o HEIC.` });
+    const archivos = files.map(f => ({ buffer: fs.readFileSync(f.path), mimetype: String(f.mimetype).toLowerCase() }));
+    const out = await leerRemitoFoto({ archivos, geminiModel, cuitEmisor: CUIT_DISTRIBUIDORA });
+    res.json({ ok: true, ...out, version: APP_VERSION });
+  } catch (err) {
+    errlog("❌ [/leer-remito-foto]", err?.message || err);
+    res.status(500).json({ ok: false, message: err?.message || "No se pudo leer el remito" });
+  } finally {
+    files.forEach(f => cleanupTempFile(f.path));
   }
 });
 
