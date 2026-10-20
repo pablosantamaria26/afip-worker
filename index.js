@@ -3894,7 +3894,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
     try {
       const { data: fac } = await supabase
         .from("facturas")
-        .select("cuit_cliente, total, mes, anio")
+        .select("cuit_cliente, total, mes, anio, referencia_bancaria")
         .or(`and(mes.eq.${mesActual},anio.eq.${anioActual}),and(mes.eq.${mesPasado},anio.eq.${anioPasado})`)
         .gt("total", 0);
       if (fac) facturasDelPeriodo = fac;
@@ -3912,11 +3912,18 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
       const fechaT = m.fecha ? new Date(m.fecha) : null;
       const mesT  = fechaT ? fechaT.getMonth() + 1 : null;
       const anioT = fechaT ? fechaT.getFullYear() : null;
+      // Con referencia bancaria se compara exacto: un mismo cliente puede transferir
+      // varias veces en el mes y cada transferencia es una factura distinta.
+      // Facturas viejas sin referencia guardada: CUIT + monto + mes.
       if (m.cuit && m.cuit.length === 11) {
-        yaFacturado = facturasDelPeriodo.some(f =>
-          f.cuit_cliente === m.cuit &&
-          (mesT == null || (Number(f.mes) === mesT && Number(f.anio) === anioT))
-        );
+        yaFacturado =
+          (!!m.referencia && facturasDelPeriodo.some(f => String(f.referencia_bancaria || "") === m.referencia)) ||
+          facturasDelPeriodo.some(f =>
+            f.cuit_cliente === m.cuit &&
+            (!m.referencia || !f.referencia_bancaria) &&
+            Math.abs(f.total - m.monto) <= 2 &&
+            (mesT == null || (Number(f.mes) === mesT && Number(f.anio) === anioT))
+          );
       } else {
         yaFacturado = facturasDelPeriodo.some(f =>
           Math.abs(f.total - m.monto) <= 2 &&
@@ -4505,10 +4512,10 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     }
 
     // Deduplicación: evitar doble facturación.
-    // Con referencia bancaria se compara sólo por referencia (exacto: dos transferencias
-    // del mismo cliente por el mismo monto son facturas distintas). Sin referencia, por
-    // CUIT + monto (el total facturado = monto transferido) en el mes de la transferencia
-    // o el siguiente (la factura puede caer en el mes siguiente por la ventana AFIP).
+    // 1) Por referencia bancaria (exacto: dos transferencias del mismo cliente por el
+    //    mismo monto son facturas distintas).
+    // 2) Contra facturas guardadas SIN referencia (anteriores a sep-2026): CUIT + monto
+    //    (total facturado = monto transferido) en el mes de la transferencia o el siguiente.
     const referencia = String(t.referencia || "").trim();
     if (supabase) {
       try {
@@ -4521,7 +4528,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
             .eq("referencia_bancaria", referencia)
             .gt("total", 0)
             .limit(1));
-        } else {
+        }
+        // Sin referencia, o facturas viejas guardadas sin referencia: CUIT + monto
+        if (!dup?.length) {
           const [anioTransf, mesTransf] = fechaTransf.split("-").map(Number);
           const desde = `${anioTransf}-${pad(mesTransf, 2)}-01`;
           const hastaD = new Date(anioTransf, mesTransf + 1, 0);
