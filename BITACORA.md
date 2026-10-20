@@ -172,13 +172,16 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 
 ## 8. Registro de cambios
 
-### 20/10/2026 — Nuevo diseño del PDF (en prueba, sin publicar)
+### 20/10/2026 — PUBLICADO en producción: rediseño + PDF nuevo + foto de remito
+- Backend `d5200e5` (Render, versión `2026-10-REDISENO-PDF`) y frontend `9a46960` (GitHub Pages, Service Worker v49). Detalle y verificaciones en la sección 12.
+
+### 20/10/2026 — Nuevo diseño del PDF
 - PDF nuevo para A, B, M y NC: logo original, paginación sin límite fijo de renglones, hojas de continuación, totales + CAE + QR siempre juntos en la última hoja, "Página X de N".
 - Nombres de descarga y de adjuntos del tipo `FA-00005-00000001_YAN-XIUYU.pdf`.
-- **No está en producción**: ver sección 11.
+- Ver sección 11.
 
-### 20/10/2026 — Rediseño profesional (en prueba, sin publicar)
-- Nueva interfaz celular + PC, foto de remito, clientes recientes, búsqueda avanzada, pendientes, íconos oficiales. **No está en producción**: ver sección 10.
+### 20/10/2026 — Rediseño profesional
+- Nueva interfaz celular + PC, foto de remito, clientes recientes, búsqueda avanzada, pendientes, íconos oficiales. Ver sección 10.
 
 ### 19/10/2026 (noche) — Detalle mayorista realista
 - El precio unitario de cada renglón salía de repartir el total al azar (por ejemplo, un escobillón a $64.000). Ahora Make usa la **lista YASH 2026-12 × 2 + IVA** y cantidades en packs (ver sección 4 bis).
@@ -225,9 +228,9 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 
 ---
 
-## 10. Rediseño profesional 2026 (EN PRUEBA — no publicado)
+## 10. Rediseño profesional 2026
 
-**Estado al 20/10/2026: listo para revisión. Producción NO fue modificada.**
+**Publicado en producción el 20/10/2026 (ver sección 12).** Lo que sigue describe cómo se preparó y probó. El sitio de prueba se conserva.
 
 ### Dónde está
 
@@ -332,9 +335,9 @@ En el link de prueba **emitir, facturar extracto, anular, reenviar email y envia
 
 ---
 
-## 11. Nuevo diseño del PDF de comprobantes (EN PRUEBA — no publicado)
+## 11. Nuevo diseño del PDF de comprobantes
 
-**Estado al 20/10/2026: listo para revisión. Producción NO fue modificada.** Las facturas que se emitan hoy siguen saliendo con el PDF anterior hasta que se publique el backend.
+**Publicado en producción el 20/10/2026 (ver sección 12).** Desde esa fecha, toda factura o NC nueva sale con este PDF. Las ya emitidas conservan el suyo.
 
 ### Dónde está
 
@@ -450,3 +453,87 @@ Va junto con el rediseño (sección 10): al fusionar `afip-worker/rediseno-2026-
 
 - Revertir el commit `2be32b0` (o el merge) en `afip-worker`. Vuelve el PDF anterior y los nombres de adjunto anteriores. Las facturas emitidas mientras tanto conservan su PDF.
 - Frontend: revertir `887573e` y subir `CACHE_NAME` en `sw.js`.
+
+---
+
+## 12. Publicación en producción — 20/10/2026
+
+Autorizada por Pablo el 20/10/2026. Se publicaron el rediseño (sección 10), el PDF nuevo (sección 11) y la foto de remito.
+
+### Qué se publicó
+
+| | Antes (respaldo) | Publicado |
+|---|---|---|
+| Backend `afip-worker` (Render, publica `main`) | `aea3680` · versión `2026-10-ITEMS-MAYORISTA` | **`d5200e5`** · versión **`2026-10-REDISENO-PDF`** |
+| Frontend `FacturacionML` (GitHub Pages, `main`) | `a577d5f` · Service Worker v46 | **`9a46960`** · Service Worker **v49** |
+| Etiqueta de respaldo | `pre-rediseno-2026-10` en ambos repos (verificada en GitHub) | — |
+
+- Las dos fusiones fueron directas (*fast-forward*): `main` no tenía cambios fuera de la rama, así que no hubo conflictos.
+- Orden de publicación:
+  1. Backend: Render tardó ~80 s.
+  2. Frontend: Pages tardó ~30 s.
+- El backend nuevo solo **agrega** la ruta `/leer-remito-foto` (25 rutas contra 24), así que la app vieja siguió funcionando durante el cambio.
+- Link de siempre: `https://pablosantamaria26.github.io/FacturacionML/`. El sitio de prueba `FacturacionML-prueba` se conserva.
+- No hizo falta tocar configuraciones ni credenciales de Render. La foto de remito usa la misma `GEMINI_API_KEY` que la lectura de extractos.
+
+### Cambio hecho durante la publicación
+
+- **Service Worker v49:** al instalarse y al abrir la app ahora pide los archivos al servidor, salteando la caché del navegador (GitHub Pages la guarda 10 minutos). Sin esto, un celular que abrió la app justo antes del cambio podía mezclar el HTML nuevo con el `app.js` viejo. Es una corrección de seguridad de la actualización, no una función nueva.
+
+### Verificaciones en producción (sin emitir, anular ni enviar nada)
+
+| Verificación | Resultado |
+|---|---|
+| `/health` de Render | OK: versión `2026-10-REDISENO-PDF`, Supabase e IA activos |
+| Rutas | Las 24 de antes siguen; se suma `/leer-remito-foto` |
+| Historial real | Octubre: 5 comprobantes (A, B y 3 M). Septiembre: las 141 M con su PDF |
+| Padrón | OK (YAN XIUYU → Factura A, desde la caché, sin gastar consultas de AFIPSDK) |
+| Vista previa en el servidor | Plantilla nueva con logo y tipografías. Responsable inscripta → A; consumidora final → B. Convertida con el motor PDF: A de 18 renglones en 2 hojas, B en 1 hoja, numeración correcta |
+| Facturas históricas | Los PDF de M de septiembre y octubre y el de la B-00005-00000009 abren (HTTP 200). `/ver-factura` funciona sobre una M |
+| Descarga con nombre | Supabase devuelve `Content-Disposition: attachment; filename=FB-00005-00000009_FERRUFINO-VANESA-SOLEDAD.pdf`. Historial y Últimas facturas generan `FA-…`, `FB-…` y `FM-…` |
+| Foto de remito con Gemini (real) | Foto de un documento real (la factura A-00005-00000001) leída en 14–18 s: CUIT, razón social, fecha, domicilio, 5 ítems y total $317.138,75 correctos. "Usar datos" cargó el formulario y la vista previa salió Factura A por $317.138,75. **No se emitió.** |
+| Modo producción | La app detecta producción: sin banner de prueba y con el `fetch` original del navegador (la simulación queda apagada del todo) |
+| Actualización de la PWA | Un navegador con la v46 instalada pasó a v49; la caché vieja se borró y la nueva interfaz cargó al reabrir |
+| Navegación celular (393×852) y PC (1366×800) | Facturar, Extracto, Historial, Email, detalle y vista previa sin errores de JavaScript ni scroll horizontal |
+| Correcciones de la sección 10 | Presentes: botones del detalle (Reenviar email / NC), cambio rápido de mes (atrás-atrás-adelante dejó septiembre con sus 141 M, sin mezclar), caché del Service Worker aislada por prefijo |
+
+### Funciones operativas y pendientes de comprobar
+
+- **Verificadas en producción:**
+  - historial y búsqueda;
+  - descarga y visualización, con los nombres de descarga;
+  - padrón y vista previa A/B;
+  - foto de remito con Gemini;
+  - PWA y Service Worker.
+- **Sin cambios en su lógica** (mismo circuito, mismas rutas, mismas reglas fiscales; probadas antes en el sitio de prueba con escrituras simuladas):
+  - factura manual y por remito PDF;
+  - A/B automáticas;
+  - extracto y control de duplicados;
+  - NC;
+  - reenvío y envío de emails;
+  - resúmenes mensuales;
+  - WhatsApp y Avisar a Oficina;
+  - recuperación de emisiones interrumpidas.
+- **Pendientes hasta la primera operación real autorizada:**
+  1. **Primera emisión real**: que el PDF nuevo se genere en Render, se guarde en Storage y llegue por email con el nombre `FA-…_CLIENTE.pdf`. Si el PDF fallara, la factura con CAE **se guarda igual** (en los 4 circuitos el PDF va aparte) y se puede rehacer con "Regenerar PDF". No hay riesgo de perder ni de duplicar el comprobante.
+  2. Primera NC real con el PDF nuevo.
+  3. Primer extracto real con la interfaz nueva.
+  4. Reenvío de email real.
+  5. En el iPhone:
+     - actualización de la app instalada (abrir, cerrar y volver a abrir);
+     - cámara real y foto de un remito en papel;
+     - escanear el QR de un PDF nuevo.
+
+### Problemas encontrados
+
+- **(Producción vieja, ya corregido)** Al activarse, el Service Worker v46 borró las cachés de las otras apps del dominio (en el navegador de prueba se borraron las de Flota y del sitio de prueba). Pasa una única vez, cuando cada celular se actualiza. Esas apps vuelven a descargar sus archivos la próxima vez que se abren y no se pierden datos. Desde la v49 ya no ocurre.
+- La primera apertura después del cambio muestra todavía la interfaz vieja. Es el comportamiento normal de una PWA: la nueva aparece al reabrir.
+
+### Reversión (si algo crítico falla)
+
+1. **Backend:** `git revert` de los commits publicados (o volver `main` a `pre-rediseno-2026-10` = `aea3680`) y push. Render vuelve a publicar en ~1–2 min. Las facturas emitidas mientras tanto quedan como están.
+2. **Frontend:** volver `main` a `pre-rediseno-2026-10` (= `a577d5f`), **pero subiendo `CACHE_NAME` a un número mayor que v49** (por ejemplo `mercadolimpio-v50`). Si no, los celulares no toman la vuelta atrás.
+3. Para no dejar el frontend y el backend incompatibles:
+   - Si se revierte el backend, revertir también el frontend (la foto de remito usa `/leer-remito-foto`).
+   - Revertir solo el frontend es seguro, porque el backend nuevo es compatible con la app vieja.
+4. El sitio de prueba y las etiquetas `pre-rediseno-2026-10` se conservan.
