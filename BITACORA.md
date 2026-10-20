@@ -1,6 +1,6 @@
 # Bitácora — Sistema de Facturación ARCA · Mercado Limpio
 
-Última actualización: **19/10/2026**
+Última actualización: **20/10/2026**
 
 Este documento cuenta qué hace el sistema, cómo está armado, qué se cambió y por qué, y cómo se ve y se comporta la app en el celular.
 
@@ -172,6 +172,9 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 
 ## 8. Registro de cambios
 
+### 20/10/2026 — Rediseño profesional (en prueba, sin publicar)
+- Nueva interfaz celular + PC, foto de remito, clientes recientes, búsqueda avanzada, pendientes, íconos oficiales. **No está en producción**: ver sección 10.
+
 ### 19/10/2026 (noche) — Detalle mayorista realista
 - El precio unitario de cada renglón salía de repartir el total al azar (por ejemplo, un escobillón a $64.000). Ahora Make usa la **lista YASH 2026-12 × 2 + IVA** y cantidades en packs (ver sección 4 bis).
 - PDF: la tabla de ítems ya no usa un recorte que algunos visores de celular dibujaban mal (se cortaba la primera fila).
@@ -214,3 +217,110 @@ La app guarda una copia para abrir rápido. Cada vez que se cambia el frontend s
 - **Clientes consumidores finales**: van a salir en Factura B. Si un cliente dice que es inscripto pero sale B, es porque en ARCA no tiene IVA ni monotributo activo; se puede verificar con `/padron/<CUIT>?fresco=1`.
 - **Cierre de mes**: correr el extracto del mes vencido en los primeros 5 días del mes nuevo y antes de cualquier otra factura.
 - **Respaldo de la corrección de rótulos** (19/10/2026): en `backups/relabel_cambios_2026-10-19.json` (id, rótulo anterior y nuevo de cada una de las 205 filas).
+
+---
+
+## 10. Rediseño profesional 2026 (EN PRUEBA — no publicado)
+
+**Estado al 20/10/2026: listo para revisión. Producción NO fue modificada.**
+
+### Dónde está
+
+| | Producción (sin cambios) | Prueba (rediseño) |
+|---|---|---|
+| Link | `https://pablosantamaria26.github.io/FacturacionML/` | **`https://pablosantamaria26.github.io/FacturacionML-prueba/`** |
+| Frontend | repo `FacturacionML`, rama `main` (`a577d5f`) | repo `FacturacionML`, rama `rediseno-2026-10` + copia publicada en el repo `FacturacionML-prueba` |
+| Backend | `afip-worker`, rama `main` (Render) | `afip-worker`, rama `rediseno-2026-10` (**no publicada**) |
+| Punto de restauración | etiqueta `pre-rediseno-2026-10` en `main` de ambos repos | — |
+
+En el link de prueba **emitir, facturar extracto, anular, reenviar email y enviar resumen se simulan**: no llegan a ARCA ni a clientes. Lo que es consulta (historial, indicadores, padrón, vista previa) usa datos reales. Los datos que la app guarda en el dispositivo van separados de los de producción (prefijo `prueba__`).
+
+### Archivos
+
+- `index.html`: nueva estructura, con los mismos 128 IDs que usa `app.js`; íconos SVG en lugar de emojis.
+- `css/app.css` (**nuevo**): sistema de diseño (colores, tipografía, componentes). Celular primero, PC desde 1024 px.
+- `app.js`: misma lógica. Solo cambiaron las plantillas visuales, la navegación y la URL base. **Ninguna regla fiscal.**
+- `js/config.js` (**nuevo**): detecta producción o prueba; en prueba simula las escrituras y separa los datos locales.
+- `js/ui.js` (**nuevo**): mes global, indicadores, clientes recientes, resumen de vista previa, pendientes y menú.
+- `js/camara.js` (**nuevo**): foto de remito.
+- `sw.js`: caché v47 con prefijo por entorno; solo borra sus propias cachés.
+- `manifest.json` + `icons-mercado-limpio/`: íconos oficiales (limón + caja). Se quitó `icon.png` (6,7 MB).
+- Backend: `lib/remito-foto.js` (**nuevo**) y ruta `POST /leer-remito-foto` en `index.js` (solo agrega, no cambia nada existente).
+- Dependencias nuevas: **ninguna**.
+
+### Qué cambia para el usuario
+
+- **Diseño**: azul noche para la estructura, blanco para las superficies, naranja para las acciones, verde para lo autorizado, rojo para errores y violeta para la IA. Tipografía Sora. Íconos uniformes.
+- **Celular (iPhone 14 Pro)**: estado del servidor con acceso al Resumen, selector de mes, 3 indicadores con comparación contra el mes anterior, accesos rápidos (Factura manual, Remito PDF, Foto de remito, Desde extracto), formulario, resumen de la vista previa y botón **Emitir** fijo sobre la barra inferior. Respeta las zonas seguras del iPhone y los campos no hacen zoom en Safari.
+- **PC**: barra lateral (Facturar, Extracto bancario, Historial, Emails y resumen, Resumen mensual), barra superior con el mes y la campana de pendientes, formulario a la izquierda y vista previa con el botón Emitir a la derecha, tabla de últimas facturas. Extracto e Historial se ven como tablas y el detalle del comprobante en un panel lateral.
+- **Vista previa**: antes de emitir muestra si sale **Factura A o B** y la condición IVA del cliente según ARCA.
+- **Clientes recientes**: con la lupa del CUIT, o al empezar a escribirlo, sugiere los clientes facturados en los últimos dos meses (con su email, si está guardado).
+- **Historial**: búsqueda por nombre, CUIT, número de comprobante, monto (ej. `263434`) o fecha (ej. `17/10`); filtros por letra (A, B, M, NC), origen (Extracto, Directa) y estado (Emitida, Anulada).
+- **Pendientes (campana)**: solo situaciones reales: emisión interrumpida, factura autorizada cuyo email falló (`failed`, no `pending`) y extracto con errores o cortado.
+- **Confirmación de emisión**: tipo, número, cliente, CUIT, monto, CAE, estado de la autorización y estado del email por separado. Acciones: abrir PDF, compartir, reenviar email, WhatsApp, Avisar a Oficina y emitir otra.
+
+### Foto de remito
+
+1. Facturar → **Foto de remito** → *Sacar foto* (abre la cámara trasera) o *Elegir de la galería* (JPG, PNG, HEIC).
+2. Se pueden agregar varias hojas, quitar fotos o repetirlas. La app endereza la orientación y reduce la foto (lado mayor 2.200 px) sin perder legibilidad.
+3. *Leer el remito con IA*: el servidor (Gemini) devuelve solo lo que figura en el remito; lo que no se lee queda vacío.
+4. **Revisión**: cada dato aparece como *leído*, *revisar*, *dudoso* o *no figura*. Los ítems se pueden editar. Se muestran subtotal, descuento, **total calculado contra total leído** y la diferencia.
+5. **Usar datos** queda bloqueado si falta el CUIT, si algún ítem está incompleto, si el total no coincide o si hay datos dudosos sin confirmar.
+6. Al usar los datos se completa el formulario de Facturar y se emite con el **mismo circuito de siempre** (`/facturar`). No hay un segundo sistema de facturación.
+7. El servidor controla el dígito verificador del CUIT, descarta el CUIT de Mercado Limpio si la IA lo leyó por error y marca los renglones cuyo subtotal no cierra.
+
+### Pruebas realizadas (20/10/2026)
+
+| Prueba | Resultado | Cómo |
+|---|---|---|
+| Factura manual a cliente RI (sale A) y a consumidor final (sale B) | OK | Padrón real; emisión simulada |
+| Remito PDF con 30 ítems y descuento → 2 partes; datos enviados idénticos a los actuales | OK | Lectura del remito simulada |
+| Vista previa (parte 1 y parte 2 de 2) | OK | Servidor real |
+| Foto de remito: foto → revisión → bloqueo por diferencia → corrección → carga en el formulario | OK | Foto sintética; lectura con IA simulada |
+| Extracto: ya facturada, sin CUIT, dos transferencias del mismo cliente con distinta referencia | OK | Análisis y facturación simulados |
+| Historial real (septiembre: 141 facturas), búsqueda y filtros | OK | Servidor real |
+| Reenviar email y NC desde el detalle; anulación manual con letra B | OK | Simulado (datos enviados verificados) |
+| Recuperación de emisión interrumpida | OK | Simulado |
+| Centro de pendientes | OK | Datos simulados |
+| Email: resumen, destinatarios, historial de envíos | OK | Envío simulado |
+| Sin superposiciones ni scroll horizontal en 12 tamaños (320×568 a 1920×1080) | OK | Verificador automático |
+| Íconos de instalación, manifiesto y Service Worker en el sitio de prueba | OK | Sitio publicado |
+| Validación de fotos en el backend (CUIT, totales) | OK | Prueba sin IA |
+
+### Errores encontrados y corregidos
+
+- **(Existe en producción)** En el detalle del Historial, *Reenviar por email* y *Emitir nota de crédito* no hacían nada: la factura seleccionada se borraba antes de usarla. Corregido en la rama.
+- **(Existe en producción)** Si se cambiaba de mes rápido en Historial o Email, una respuesta vieja podía pisar a la nueva (decía "Septiembre" con datos de octubre). Corregido.
+- **(Existe en producción)** El Service Worker borraba todas las cachés del dominio `github.io`, incluida la de otras apps (por ejemplo, Flota). El nuevo solo borra las suyas.
+- La vista previa del PDF se veía apretada en el celular; ahora muestra la hoja real escalada.
+
+### Pendiente de verificación
+
+- **Cámara real del iPhone** (abrir la cámara, HEIC de la galería): probada con fotos sintéticas en el navegador; falta la prueba física.
+- **Lectura real con IA de una foto**: requiere publicar `/leer-remito-foto` en Render (**pendiente de autorización**). Hasta entonces, en el link de prueba la foto muestra "La lectura de fotos todavía no está habilitada en el servidor".
+- Instalación en la pantalla de inicio del iPhone (ícono y apertura).
+- Emisión real con la nueva interfaz (en prueba todo se simula).
+
+### Cómo probar
+
+- **iPhone:** abrir `https://pablosantamaria26.github.io/FacturacionML-prueba/` en Safari → Compartir → *Agregar a pantalla de inicio* → abrir desde el ícono. Recorrer las 4 pestañas, el Resumen, la campana y la Foto de remito. Lo que se emite aparece como "Simulada".
+- **PC:** abrir el mismo link en Chrome y probar con la ventana a distintos anchos.
+
+### Para pasar a producción (requiere tu aprobación)
+
+1. Publicar el backend: fusionar `afip-worker/rediseno-2026-10` en `main` (solo agrega `/leer-remito-foto`).
+2. Fusionar `FacturacionML/rediseno-2026-10` en `main`. Con el Service Worker v47, los celulares toman la versión nueva al reabrir la app.
+3. En producción la simulación se apaga sola: la app detecta la ruta `/FacturacionML/`.
+
+### Reversión
+
+- Frontend: revertir el merge en `FacturacionML` (o volver `main` a la etiqueta `pre-rediseno-2026-10`) y subir `CACHE_NAME` en `sw.js` para forzar la actualización en los celulares.
+- Backend: revertir el merge en `afip-worker`; Render vuelve a publicar `main`.
+- El sitio de prueba se puede borrar sin afectar nada (repo `FacturacionML-prueba`).
+
+### Limitaciones conocidas
+
+- **Bloqueo con PIN o biometría**: no se implementó. Una protección real requiere validación en el servidor (por ejemplo, WebAuthn con registro de credenciales); un PIN guardado solo en el celular no protege nada. Queda como mejora futura.
+- **Modo oscuro**: no implementado (mejora secundaria).
+- La facturación no funciona sin conexión, porque ARCA tiene que autorizar cada comprobante. Sin servidor, la app lo indica y en producción no simula emisiones.
+- Cada cambio del frontend necesita subir `CACHE_NAME` en `sw.js` para que los celulares lo tomen.
