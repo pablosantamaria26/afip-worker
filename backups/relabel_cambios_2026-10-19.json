@@ -1,0 +1,2068 @@
+[
+ {
+  "id": 1,
+  "antes": {
+   "comprobante": "A-00005-00000033",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000033"
+  }
+ },
+ {
+  "id": 2,
+  "antes": {
+   "comprobante": "A-00005-00000034",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000034"
+  }
+ },
+ {
+  "id": 3,
+  "antes": {
+   "comprobante": "A-00005-00000035",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000035"
+  }
+ },
+ {
+  "id": 4,
+  "antes": {
+   "comprobante": "A-00005-00000036",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000036"
+  }
+ },
+ {
+  "id": 5,
+  "antes": {
+   "comprobante": "A-00005-00000037",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000037"
+  }
+ },
+ {
+  "id": 6,
+  "antes": {
+   "comprobante": "A-00005-00000038",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000038"
+  }
+ },
+ {
+  "id": 7,
+  "antes": {
+   "comprobante": "A-00005-00000039",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000039"
+  }
+ },
+ {
+  "id": 30,
+  "antes": {
+   "comprobante": "A-00005-00000041",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000041",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 31,
+  "antes": {
+   "comprobante": "A-00005-00000042",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000042",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 32,
+  "antes": {
+   "comprobante": "A-00005-00000043",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000043",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 33,
+  "antes": {
+   "comprobante": "A-00005-00000044",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000044",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 105,
+  "antes": {
+   "comprobante": "A-00005-00000115",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000115",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 106,
+  "antes": {
+   "comprobante": "A-00005-00000116",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000116",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 107,
+  "antes": {
+   "comprobante": "A-00005-00000117",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000117",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 108,
+  "antes": {
+   "comprobante": "A-00005-00000118",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000118",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 109,
+  "antes": {
+   "comprobante": "A-00005-00000119",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000119",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 110,
+  "antes": {
+   "comprobante": "A-00005-00000120",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000120",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 226,
+  "antes": {
+   "comprobante": "A-00005-00000217",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "M-00005-00000217",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 234,
+  "antes": {
+   "comprobante": "FA-M-00005-00000218",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 235,
+  "antes": {
+   "comprobante": "FA-M-00005-00000219",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 236,
+  "antes": {
+   "comprobante": "FA-M-00005-00000220",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 237,
+  "antes": {
+   "comprobante": "FA-M-00005-00000221",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 238,
+  "antes": {
+   "comprobante": "FA-M-00005-00000222",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 300,
+  "antes": {
+   "comprobante": "FA-M-00005-00000284",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 322,
+  "antes": {
+   "comprobante": "FA-M-00005-00000306",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 323,
+  "antes": {
+   "comprobante": "FA-M-00005-00000307",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 324,
+  "antes": {
+   "comprobante": "FA-M-00005-00000308",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 441,
+  "antes": {
+   "comprobante": "FA-M-00005-00000425",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 475,
+  "antes": {
+   "comprobante": "FA-M-00005-00000459",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 476,
+  "antes": {
+   "comprobante": "A-00005-00000460",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000460"
+  }
+ },
+ {
+  "id": 477,
+  "antes": {
+   "comprobante": "A-00005-00000461",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000461"
+  }
+ },
+ {
+  "id": 478,
+  "antes": {
+   "comprobante": "A-00005-00000462",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000462"
+  }
+ },
+ {
+  "id": 479,
+  "antes": {
+   "comprobante": "A-00005-00000463",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000463"
+  }
+ },
+ {
+  "id": 480,
+  "antes": {
+   "comprobante": "A-00005-00000464",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000464"
+  }
+ },
+ {
+  "id": 481,
+  "antes": {
+   "comprobante": "A-00005-00000465",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000465"
+  }
+ },
+ {
+  "id": 482,
+  "antes": {
+   "comprobante": "A-00005-00000466",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000466"
+  }
+ },
+ {
+  "id": 483,
+  "antes": {
+   "comprobante": "A-00005-00000467",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000467"
+  }
+ },
+ {
+  "id": 484,
+  "antes": {
+   "comprobante": "A-00005-00000468",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000468"
+  }
+ },
+ {
+  "id": 485,
+  "antes": {
+   "comprobante": "A-00005-00000469",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000469"
+  }
+ },
+ {
+  "id": 486,
+  "antes": {
+   "comprobante": "A-00005-00000470",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000470"
+  }
+ },
+ {
+  "id": 487,
+  "antes": {
+   "comprobante": "A-00005-00000471",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000471"
+  }
+ },
+ {
+  "id": 488,
+  "antes": {
+   "comprobante": "A-00005-00000472",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000472"
+  }
+ },
+ {
+  "id": 489,
+  "antes": {
+   "comprobante": "A-00005-00000473",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000473"
+  }
+ },
+ {
+  "id": 490,
+  "antes": {
+   "comprobante": "A-00005-00000474",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000474"
+  }
+ },
+ {
+  "id": 491,
+  "antes": {
+   "comprobante": "A-00005-00000475",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000475"
+  }
+ },
+ {
+  "id": 492,
+  "antes": {
+   "comprobante": "A-00005-00000476",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000476"
+  }
+ },
+ {
+  "id": 493,
+  "antes": {
+   "comprobante": "A-00005-00000477",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000477"
+  }
+ },
+ {
+  "id": 494,
+  "antes": {
+   "comprobante": "A-00005-00000478",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000478"
+  }
+ },
+ {
+  "id": 495,
+  "antes": {
+   "comprobante": "A-00005-00000479",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000479"
+  }
+ },
+ {
+  "id": 496,
+  "antes": {
+   "comprobante": "A-00005-00000480",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000480"
+  }
+ },
+ {
+  "id": 497,
+  "antes": {
+   "comprobante": "A-00005-00000481",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000481"
+  }
+ },
+ {
+  "id": 498,
+  "antes": {
+   "comprobante": "A-00005-00000482",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000482"
+  }
+ },
+ {
+  "id": 499,
+  "antes": {
+   "comprobante": "A-00005-00000483",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000483"
+  }
+ },
+ {
+  "id": 500,
+  "antes": {
+   "comprobante": "A-00005-00000484",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000484"
+  }
+ },
+ {
+  "id": 501,
+  "antes": {
+   "comprobante": "A-00005-00000485",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000485"
+  }
+ },
+ {
+  "id": 502,
+  "antes": {
+   "comprobante": "A-00005-00000486",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000486"
+  }
+ },
+ {
+  "id": 503,
+  "antes": {
+   "comprobante": "A-00005-00000487",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000487"
+  }
+ },
+ {
+  "id": 504,
+  "antes": {
+   "comprobante": "A-00005-00000488",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000488"
+  }
+ },
+ {
+  "id": 505,
+  "antes": {
+   "comprobante": "A-00005-00000489",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000489"
+  }
+ },
+ {
+  "id": 506,
+  "antes": {
+   "comprobante": "A-00005-00000490",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000490"
+  }
+ },
+ {
+  "id": 507,
+  "antes": {
+   "comprobante": "A-00005-00000491",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000491"
+  }
+ },
+ {
+  "id": 508,
+  "antes": {
+   "comprobante": "FA-A-00005-00000492",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "FA-M-00005-00000492",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 509,
+  "antes": {
+   "comprobante": "A-00005-00000493",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000493"
+  }
+ },
+ {
+  "id": 510,
+  "antes": {
+   "comprobante": "A-00005-00000494",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000494"
+  }
+ },
+ {
+  "id": 511,
+  "antes": {
+   "comprobante": "A-00005-00000495",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000495"
+  }
+ },
+ {
+  "id": 512,
+  "antes": {
+   "comprobante": "A-00005-00000496",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000496"
+  }
+ },
+ {
+  "id": 513,
+  "antes": {
+   "comprobante": "A-00005-00000497",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000497"
+  }
+ },
+ {
+  "id": 514,
+  "antes": {
+   "comprobante": "A-00005-00000498",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000498"
+  }
+ },
+ {
+  "id": 515,
+  "antes": {
+   "comprobante": "A-00005-00000499",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000499"
+  }
+ },
+ {
+  "id": 516,
+  "antes": {
+   "comprobante": "A-00005-00000500",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000500"
+  }
+ },
+ {
+  "id": 517,
+  "antes": {
+   "comprobante": "A-00005-00000501",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000501"
+  }
+ },
+ {
+  "id": 518,
+  "antes": {
+   "comprobante": "A-00005-00000502",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000502"
+  }
+ },
+ {
+  "id": 519,
+  "antes": {
+   "comprobante": "A-00005-00000503",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000503"
+  }
+ },
+ {
+  "id": 520,
+  "antes": {
+   "comprobante": "A-00005-00000504",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000504"
+  }
+ },
+ {
+  "id": 521,
+  "antes": {
+   "comprobante": "A-00005-00000505",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000505"
+  }
+ },
+ {
+  "id": 522,
+  "antes": {
+   "comprobante": "A-00005-00000506",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000506"
+  }
+ },
+ {
+  "id": 523,
+  "antes": {
+   "comprobante": "A-00005-00000507",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000507"
+  }
+ },
+ {
+  "id": 524,
+  "antes": {
+   "comprobante": "A-00005-00000508",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000508"
+  }
+ },
+ {
+  "id": 525,
+  "antes": {
+   "comprobante": "A-00005-00000509",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000509"
+  }
+ },
+ {
+  "id": 526,
+  "antes": {
+   "comprobante": "A-00005-00000510",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000510"
+  }
+ },
+ {
+  "id": 527,
+  "antes": {
+   "comprobante": "A-00005-00000511",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000511"
+  }
+ },
+ {
+  "id": 528,
+  "antes": {
+   "comprobante": "A-00005-00000512",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000512"
+  }
+ },
+ {
+  "id": 529,
+  "antes": {
+   "comprobante": "A-00005-00000513",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000513"
+  }
+ },
+ {
+  "id": 530,
+  "antes": {
+   "comprobante": "A-00005-00000514",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000514"
+  }
+ },
+ {
+  "id": 531,
+  "antes": {
+   "comprobante": "A-00005-00000515",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000515"
+  }
+ },
+ {
+  "id": 532,
+  "antes": {
+   "comprobante": "A-00005-00000516",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000516"
+  }
+ },
+ {
+  "id": 533,
+  "antes": {
+   "comprobante": "A-00005-00000517",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000517"
+  }
+ },
+ {
+  "id": 534,
+  "antes": {
+   "comprobante": "A-00005-00000518",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000518"
+  }
+ },
+ {
+  "id": 535,
+  "antes": {
+   "comprobante": "A-00005-00000519",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000519"
+  }
+ },
+ {
+  "id": 536,
+  "antes": {
+   "comprobante": "A-00005-00000520",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000520"
+  }
+ },
+ {
+  "id": 537,
+  "antes": {
+   "comprobante": "A-00005-00000521",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000521"
+  }
+ },
+ {
+  "id": 538,
+  "antes": {
+   "comprobante": "A-00005-00000522",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000522"
+  }
+ },
+ {
+  "id": 539,
+  "antes": {
+   "comprobante": "A-00005-00000523",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000523"
+  }
+ },
+ {
+  "id": 540,
+  "antes": {
+   "comprobante": "A-00005-00000524",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000524"
+  }
+ },
+ {
+  "id": 541,
+  "antes": {
+   "comprobante": "A-00005-00000525",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000525"
+  }
+ },
+ {
+  "id": 542,
+  "antes": {
+   "comprobante": "A-00005-00000526",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000526"
+  }
+ },
+ {
+  "id": 543,
+  "antes": {
+   "comprobante": "A-00005-00000527",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000527"
+  }
+ },
+ {
+  "id": 544,
+  "antes": {
+   "comprobante": "A-00005-00000528",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000528"
+  }
+ },
+ {
+  "id": 545,
+  "antes": {
+   "comprobante": "A-00005-00000529",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000529"
+  }
+ },
+ {
+  "id": 546,
+  "antes": {
+   "comprobante": "A-00005-00000530",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000530"
+  }
+ },
+ {
+  "id": 547,
+  "antes": {
+   "comprobante": "A-00005-00000531",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000531"
+  }
+ },
+ {
+  "id": 548,
+  "antes": {
+   "comprobante": "A-00005-00000532",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000532"
+  }
+ },
+ {
+  "id": 549,
+  "antes": {
+   "comprobante": "A-00005-00000533",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000533"
+  }
+ },
+ {
+  "id": 550,
+  "antes": {
+   "comprobante": "A-00005-00000534",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000534"
+  }
+ },
+ {
+  "id": 551,
+  "antes": {
+   "comprobante": "A-00005-00000535",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000535"
+  }
+ },
+ {
+  "id": 552,
+  "antes": {
+   "comprobante": "A-00005-00000536",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000536"
+  }
+ },
+ {
+  "id": 553,
+  "antes": {
+   "comprobante": "A-00005-00000537",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000537"
+  }
+ },
+ {
+  "id": 554,
+  "antes": {
+   "comprobante": "A-00005-00000538",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000538"
+  }
+ },
+ {
+  "id": 555,
+  "antes": {
+   "comprobante": "A-00005-00000539",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000539"
+  }
+ },
+ {
+  "id": 556,
+  "antes": {
+   "comprobante": "A-00005-00000540",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000540"
+  }
+ },
+ {
+  "id": 557,
+  "antes": {
+   "comprobante": "A-00005-00000541",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000541"
+  }
+ },
+ {
+  "id": 558,
+  "antes": {
+   "comprobante": "A-00005-00000542",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000542"
+  }
+ },
+ {
+  "id": 559,
+  "antes": {
+   "comprobante": "A-00005-00000543",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000543"
+  }
+ },
+ {
+  "id": 560,
+  "antes": {
+   "comprobante": "A-00005-00000544",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000544"
+  }
+ },
+ {
+  "id": 561,
+  "antes": {
+   "comprobante": "A-00005-00000545",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000545"
+  }
+ },
+ {
+  "id": 562,
+  "antes": {
+   "comprobante": "A-00005-00000546",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000546"
+  }
+ },
+ {
+  "id": 563,
+  "antes": {
+   "comprobante": "A-00005-00000547",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000547"
+  }
+ },
+ {
+  "id": 564,
+  "antes": {
+   "comprobante": "A-00005-00000548",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000548"
+  }
+ },
+ {
+  "id": 565,
+  "antes": {
+   "comprobante": "A-00005-00000549",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000549"
+  }
+ },
+ {
+  "id": 566,
+  "antes": {
+   "comprobante": "A-00005-00000550",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000550"
+  }
+ },
+ {
+  "id": 567,
+  "antes": {
+   "comprobante": "A-00005-00000551",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000551"
+  }
+ },
+ {
+  "id": 568,
+  "antes": {
+   "comprobante": "A-00005-00000552",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000552"
+  }
+ },
+ {
+  "id": 569,
+  "antes": {
+   "comprobante": "A-00005-00000553",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000553"
+  }
+ },
+ {
+  "id": 570,
+  "antes": {
+   "comprobante": "A-00005-00000554",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000554"
+  }
+ },
+ {
+  "id": 571,
+  "antes": {
+   "comprobante": "A-00005-00000555",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000555"
+  }
+ },
+ {
+  "id": 572,
+  "antes": {
+   "comprobante": "A-00005-00000556",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000556"
+  }
+ },
+ {
+  "id": 573,
+  "antes": {
+   "comprobante": "A-00005-00000557",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000557"
+  }
+ },
+ {
+  "id": 574,
+  "antes": {
+   "comprobante": "A-00005-00000558",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000558"
+  }
+ },
+ {
+  "id": 575,
+  "antes": {
+   "comprobante": "A-00005-00000559",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000559"
+  }
+ },
+ {
+  "id": 576,
+  "antes": {
+   "comprobante": "A-00005-00000560",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000560"
+  }
+ },
+ {
+  "id": 577,
+  "antes": {
+   "comprobante": "A-00005-00000561",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000561"
+  }
+ },
+ {
+  "id": 578,
+  "antes": {
+   "comprobante": "A-00005-00000562",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000562"
+  }
+ },
+ {
+  "id": 579,
+  "antes": {
+   "comprobante": "A-00005-00000563",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000563"
+  }
+ },
+ {
+  "id": 580,
+  "antes": {
+   "comprobante": "A-00005-00000564",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000564"
+  }
+ },
+ {
+  "id": 581,
+  "antes": {
+   "comprobante": "A-00005-00000565",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000565"
+  }
+ },
+ {
+  "id": 582,
+  "antes": {
+   "comprobante": "A-00005-00000566",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000566"
+  }
+ },
+ {
+  "id": 583,
+  "antes": {
+   "comprobante": "A-00005-00000567",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000567"
+  }
+ },
+ {
+  "id": 584,
+  "antes": {
+   "comprobante": "FA-A-00005-00000568",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "FA-M-00005-00000568",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 585,
+  "antes": {
+   "comprobante": "A-00005-00000569",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000569"
+  }
+ },
+ {
+  "id": 586,
+  "antes": {
+   "comprobante": "A-00005-00000570",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000570"
+  }
+ },
+ {
+  "id": 587,
+  "antes": {
+   "comprobante": "A-00005-00000571",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000571"
+  }
+ },
+ {
+  "id": 588,
+  "antes": {
+   "comprobante": "A-00005-00000572",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000572"
+  }
+ },
+ {
+  "id": 589,
+  "antes": {
+   "comprobante": "A-00005-00000573",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000573"
+  }
+ },
+ {
+  "id": 590,
+  "antes": {
+   "comprobante": "A-00005-00000574",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000574"
+  }
+ },
+ {
+  "id": 591,
+  "antes": {
+   "comprobante": "A-00005-00000575",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000575"
+  }
+ },
+ {
+  "id": 592,
+  "antes": {
+   "comprobante": "A-00005-00000576",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000576"
+  }
+ },
+ {
+  "id": 593,
+  "antes": {
+   "comprobante": "A-00005-00000577",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000577"
+  }
+ },
+ {
+  "id": 594,
+  "antes": {
+   "comprobante": "A-00005-00000578",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000578"
+  }
+ },
+ {
+  "id": 595,
+  "antes": {
+   "comprobante": "A-00005-00000579",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000579"
+  }
+ },
+ {
+  "id": 596,
+  "antes": {
+   "comprobante": "A-00005-00000580",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000580"
+  }
+ },
+ {
+  "id": 597,
+  "antes": {
+   "comprobante": "A-00005-00000581",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000581"
+  }
+ },
+ {
+  "id": 598,
+  "antes": {
+   "comprobante": "A-00005-00000582",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000582"
+  }
+ },
+ {
+  "id": 599,
+  "antes": {
+   "comprobante": "A-00005-00000583",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000583"
+  }
+ },
+ {
+  "id": 600,
+  "antes": {
+   "comprobante": "A-00005-00000584",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000584"
+  }
+ },
+ {
+  "id": 601,
+  "antes": {
+   "comprobante": "A-00005-00000585",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000585"
+  }
+ },
+ {
+  "id": 602,
+  "antes": {
+   "comprobante": "A-00005-00000586",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000586"
+  }
+ },
+ {
+  "id": 603,
+  "antes": {
+   "comprobante": "A-00005-00000587",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000587"
+  }
+ },
+ {
+  "id": 604,
+  "antes": {
+   "comprobante": "A-00005-00000588",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000588"
+  }
+ },
+ {
+  "id": 605,
+  "antes": {
+   "comprobante": "A-00005-00000589",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000589"
+  }
+ },
+ {
+  "id": 606,
+  "antes": {
+   "comprobante": "A-00005-00000590",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000590"
+  }
+ },
+ {
+  "id": 607,
+  "antes": {
+   "comprobante": "A-00005-00000591",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000591"
+  }
+ },
+ {
+  "id": 608,
+  "antes": {
+   "comprobante": "A-00005-00000592",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000592"
+  }
+ },
+ {
+  "id": 609,
+  "antes": {
+   "comprobante": "A-00005-00000593",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000593"
+  }
+ },
+ {
+  "id": 610,
+  "antes": {
+   "comprobante": "A-00005-00000594",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000594"
+  }
+ },
+ {
+  "id": 611,
+  "antes": {
+   "comprobante": "A-00005-00000595",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000595"
+  }
+ },
+ {
+  "id": 612,
+  "antes": {
+   "comprobante": "A-00005-00000596",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000596"
+  }
+ },
+ {
+  "id": 613,
+  "antes": {
+   "comprobante": "A-00005-00000597",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000597"
+  }
+ },
+ {
+  "id": 614,
+  "antes": {
+   "comprobante": "A-00005-00000598",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000598"
+  }
+ },
+ {
+  "id": 615,
+  "antes": {
+   "comprobante": "A-00005-00000599",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000599"
+  }
+ },
+ {
+  "id": 616,
+  "antes": {
+   "comprobante": "A-00005-00000600",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000600"
+  }
+ },
+ {
+  "id": 617,
+  "antes": {
+   "comprobante": "A-00005-00000601",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000601"
+  }
+ },
+ {
+  "id": 618,
+  "antes": {
+   "comprobante": "A-00005-00000602",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000602"
+  }
+ },
+ {
+  "id": 619,
+  "antes": {
+   "comprobante": "A-00005-00000603",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000603"
+  }
+ },
+ {
+  "id": 620,
+  "antes": {
+   "comprobante": "A-00005-00000604",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000604"
+  }
+ },
+ {
+  "id": 621,
+  "antes": {
+   "comprobante": "A-00005-00000605",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000605"
+  }
+ },
+ {
+  "id": 622,
+  "antes": {
+   "comprobante": "A-00005-00000606",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000606"
+  }
+ },
+ {
+  "id": 623,
+  "antes": {
+   "comprobante": "A-00005-00000607",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000607"
+  }
+ },
+ {
+  "id": 624,
+  "antes": {
+   "comprobante": "A-00005-00000608",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000608"
+  }
+ },
+ {
+  "id": 625,
+  "antes": {
+   "comprobante": "A-00005-00000609",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000609"
+  }
+ },
+ {
+  "id": 626,
+  "antes": {
+   "comprobante": "A-00005-00000610",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000610"
+  }
+ },
+ {
+  "id": 627,
+  "antes": {
+   "comprobante": "A-00005-00000611",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000611"
+  }
+ },
+ {
+  "id": 628,
+  "antes": {
+   "comprobante": "A-00005-00000612",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000612"
+  }
+ },
+ {
+  "id": 629,
+  "antes": {
+   "comprobante": "A-00005-00000613",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000613"
+  }
+ },
+ {
+  "id": 630,
+  "antes": {
+   "comprobante": "A-00005-00000614",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000614"
+  }
+ },
+ {
+  "id": 631,
+  "antes": {
+   "comprobante": "A-00005-00000615",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000615"
+  }
+ },
+ {
+  "id": 632,
+  "antes": {
+   "comprobante": "A-00005-00000616",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000616"
+  }
+ },
+ {
+  "id": 633,
+  "antes": {
+   "comprobante": "A-00005-00000617",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000617"
+  }
+ },
+ {
+  "id": 634,
+  "antes": {
+   "comprobante": "A-00005-00000618",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000618"
+  }
+ },
+ {
+  "id": 635,
+  "antes": {
+   "comprobante": "A-00005-00000619",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000619"
+  }
+ },
+ {
+  "id": 636,
+  "antes": {
+   "comprobante": "A-00005-00000620",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000620"
+  }
+ },
+ {
+  "id": 637,
+  "antes": {
+   "comprobante": "A-00005-00000621",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000621"
+  }
+ },
+ {
+  "id": 638,
+  "antes": {
+   "comprobante": "A-00005-00000622",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000622"
+  }
+ },
+ {
+  "id": 639,
+  "antes": {
+   "comprobante": "A-00005-00000623",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000623"
+  }
+ },
+ {
+  "id": 640,
+  "antes": {
+   "comprobante": "A-00005-00000624",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000624"
+  }
+ },
+ {
+  "id": 641,
+  "antes": {
+   "comprobante": "A-00005-00000625",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000625"
+  }
+ },
+ {
+  "id": 642,
+  "antes": {
+   "comprobante": "A-00005-00000626",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000626"
+  }
+ },
+ {
+  "id": 643,
+  "antes": {
+   "comprobante": "A-00005-00000627",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000627"
+  }
+ },
+ {
+  "id": 644,
+  "antes": {
+   "comprobante": "A-00005-00000628",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000628"
+  }
+ },
+ {
+  "id": 645,
+  "antes": {
+   "comprobante": "A-00005-00000629",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000629"
+  }
+ },
+ {
+  "id": 646,
+  "antes": {
+   "comprobante": "A-00005-00000630",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000630"
+  }
+ },
+ {
+  "id": 647,
+  "antes": {
+   "comprobante": "A-00005-00000631",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000631"
+  }
+ },
+ {
+  "id": 648,
+  "antes": {
+   "comprobante": "A-00005-00000632",
+   "cbte_tipo": 51
+  },
+  "patch": {
+   "comprobante": "M-00005-00000632"
+  }
+ },
+ {
+  "id": 649,
+  "antes": {
+   "comprobante": "FA-A-00005-00000633",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "FA-M-00005-00000633",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 650,
+  "antes": {
+   "comprobante": "FA-A-00005-00000634",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "FA-M-00005-00000634",
+   "cbte_tipo": 51
+  }
+ },
+ {
+  "id": 651,
+  "antes": {
+   "comprobante": "FA-A-00005-00000635",
+   "cbte_tipo": null
+  },
+  "patch": {
+   "comprobante": "FA-M-00005-00000635",
+   "cbte_tipo": 51
+  }
+ }
+]
