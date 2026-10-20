@@ -1,0 +1,1554 @@
+{
+ "origen": "NUEVA LISTA DE PRECIOS YASH 2026 -12.xlsx",
+ "generado": "2026-10-20",
+ "precioLista": "unitario sin IVA",
+ "items": [
+  {
+   "codigo": "6103",
+   "desc": "Make Fibra esponja con salva uñas",
+   "seccion": "CLASICAS",
+   "uxb": 240,
+   "lista": 325.31
+  },
+  {
+   "codigo": "324",
+   "desc": "Make Fibra esponja cuadriculada",
+   "seccion": "CLASICAS",
+   "uxb": 240,
+   "lista": 228.38
+  },
+  {
+   "codigo": "6247",
+   "desc": "Make Fibra esponja pack x 3 un",
+   "seccion": "CLASICAS",
+   "uxb": 80,
+   "lista": 921.3
+  },
+  {
+   "codigo": "331",
+   "desc": "Make Fibra esponja lisa",
+   "seccion": "CLASICAS",
+   "uxb": 240,
+   "lista": 239.79
+  },
+  {
+   "codigo": "300",
+   "desc": "Make Fibra esponja rosada para sanitarios",
+   "seccion": "CLASICAS",
+   "uxb": 120,
+   "lista": 579.59
+  },
+  {
+   "codigo": "317",
+   "desc": "Make Fibra esponja plateada suciedades adheridas",
+   "seccion": "CLASICAS",
+   "uxb": 120,
+   "lista": 566.75
+  },
+  {
+   "codigo": "6728",
+   "desc": "Make Fibra esponja extra grande",
+   "seccion": "CLASICAS",
+   "uxb": 120,
+   "lista": 532.04
+  },
+  {
+   "codigo": "6660",
+   "desc": "Make Fibra esponja rosada en caja exhibidora",
+   "seccion": "CLASICAS",
+   "uxb": 36,
+   "lista": 605.09
+  },
+  {
+   "codigo": "6731",
+   "desc": "Make Esponja fibra fuerte azul",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 331.29
+  },
+  {
+   "codigo": "6805",
+   "desc": "Make Esponja fibra fuerte rosa",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 331.29
+  },
+  {
+   "codigo": "6806",
+   "desc": "Make Esponja fibra fuerte naranja",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 331.29
+  },
+  {
+   "codigo": "6328",
+   "desc": "Make Fibra esponja c/salva uñas con fibra pegada",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 362.92
+  },
+  {
+   "codigo": "7980",
+   "desc": "Make Esponja con fibra verde pegada",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 346.36
+  },
+  {
+   "codigo": "6918",
+   "desc": "Make Esponja verde con fibra plateada",
+   "seccion": "CON FIBRA PEGADA",
+   "uxb": 120,
+   "lista": 552.23
+  },
+  {
+   "codigo": "6175",
+   "desc": "Make Esponja spugnella",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 706.92
+  },
+  {
+   "codigo": "6997",
+   "desc": "Make Esponja nueva generacion",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 492.87
+  },
+  {
+   "codigo": "6495",
+   "desc": "Make Esponja flat",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 581.25
+  },
+  {
+   "codigo": "7110",
+   "desc": "Make Esponja flat black",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 610.65
+  },
+  {
+   "codigo": "6941",
+   "desc": "Make Esponja slim flat",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 704.57
+  },
+  {
+   "codigo": "6496",
+   "desc": "Make Fibra verde 10 x 15",
+   "seccion": "ESPECIALES",
+   "uxb": 240,
+   "lista": 273.8
+  },
+  {
+   "codigo": "4223",
+   "desc": "Make Dos en uno",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 1008.66
+  },
+  {
+   "codigo": "6916",
+   "desc": "Make Fibra parrillera extra fuerte",
+   "seccion": "ESPECIALES",
+   "uxb": 36,
+   "lista": 583.56
+  },
+  {
+   "codigo": "6658",
+   "desc": "Make Esponja spugnella en caja exhibidora",
+   "seccion": "ESPECIALES",
+   "uxb": 60,
+   "lista": 779.03
+  },
+  {
+   "codigo": "6661",
+   "desc": "Make Esponja flat en caja exhibidora",
+   "seccion": "ESPECIALES",
+   "uxb": 74,
+   "lista": 867.22
+  },
+  {
+   "codigo": "6998",
+   "desc": "Make Esponja slim acero",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 722.45
+  },
+  {
+   "codigo": "7006",
+   "desc": "Make Esponja acanalada natural",
+   "seccion": "ESPECIALES",
+   "uxb": 120,
+   "lista": 477.45
+  },
+  {
+   "codigo": "7007",
+   "desc": "Make Fibra abrasiva natural",
+   "seccion": "ESPECIALES",
+   "uxb": 36,
+   "lista": 615.1
+  },
+  {
+   "codigo": "7057",
+   "desc": "Make Esponja con fibra corazon",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 743.81
+  },
+  {
+   "codigo": "7059",
+   "desc": "Make Fibra esponja premiun black",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 478.35
+  },
+  {
+   "codigo": "7012",
+   "desc": "Make Esponja diamond",
+   "seccion": "ESPECIALES",
+   "uxb": 72,
+   "lista": 804.88
+  },
+  {
+   "codigo": "6224",
+   "desc": "Make Esponja acero inox. 10 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 141.13
+  },
+  {
+   "codigo": "6082",
+   "desc": "Make Esponja acero inox. 12 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 175.5
+  },
+  {
+   "codigo": "6107",
+   "desc": "Make Esponja acero inox. x 12 grs. x 2 make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 458.11
+  },
+  {
+   "codigo": "307951",
+   "desc": "Make Esponja acero inox. x 15 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 208
+  },
+  {
+   "codigo": "6767",
+   "desc": "Make Esponja acero inox. 30 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 347.42
+  },
+  {
+   "codigo": "6226",
+   "desc": "Make Esponja acero inox. 50 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 556.12
+  },
+  {
+   "codigo": "6225",
+   "desc": "Make Esponja dorada x 10 grs.make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 467.04
+  },
+  {
+   "codigo": "7987",
+   "desc": "Make Esponja dorada x 12 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 545.92
+  },
+  {
+   "codigo": "6106",
+   "desc": "Make Esponja dorada x 12 grs. x 2 make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 1341.42
+  },
+  {
+   "codigo": "7986",
+   "desc": "Make Esponja dorada x 15 grs. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 673.76
+  },
+  {
+   "codigo": "6771",
+   "desc": "Make Esponja dorada x 30 grs.",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 1327.12
+  },
+  {
+   "codigo": "6227",
+   "desc": "Make Esponja dorada x 45 grs.",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 1997.82
+  },
+  {
+   "codigo": "6654",
+   "desc": "Make Esponja dorada 10 grs en caja exhibidora",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 100,
+   "lista": 583.45
+  },
+  {
+   "codigo": "6655",
+   "desc": "Make Esponja dorada 12 grs en caja exhibidora",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 100,
+   "lista": 682.02
+  },
+  {
+   "codigo": "6656",
+   "desc": "Make Esponja acero inox 10 grs en caja exhibidora",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 100,
+   "lista": 208.33
+  },
+  {
+   "codigo": "6657",
+   "desc": "Make Esponja acero inox 12 grs en caja exhibidora",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 100,
+   "lista": 266.31
+  },
+  {
+   "codigo": "6104",
+   "desc": "Make Esponja redonda combinada con acero",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 1104.16
+  },
+  {
+   "codigo": "6690",
+   "desc": "Make Esponja redonda combinada con bronce",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 120,
+   "lista": 1555.72
+  },
+  {
+   "codigo": "133",
+   "desc": "Make Estropajo de acero mediano",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 240,
+   "lista": 244.21
+  },
+  {
+   "codigo": "6659",
+   "desc": "Make Esponja redonda combinada en caja exhibidora",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 45,
+   "lista": 1147.3
+  },
+  {
+   "codigo": "107905",
+   "desc": "Make Rollitos 10 un. make",
+   "seccion": "ACERO INOXIDABLE Y DORADAS",
+   "uxb": 150,
+   "lista": 529.45
+  },
+  {
+   "codigo": "6179",
+   "desc": "Make Fibra esponja anatomica baño",
+   "seccion": "DE BAÑO",
+   "uxb": 120,
+   "lista": 382.88
+  },
+  {
+   "codigo": "6105",
+   "desc": "Make Esponja baño masaje",
+   "seccion": "DE BAÑO",
+   "uxb": 72,
+   "lista": 665.17
+  },
+  {
+   "codigo": "4162",
+   "desc": "Make Esponja baño comun make",
+   "seccion": "DE BAÑO",
+   "uxb": 120,
+   "lista": 176.19
+  },
+  {
+   "codigo": "6922",
+   "desc": "Make Esponja infantil",
+   "seccion": "DE BAÑO",
+   "uxb": 72,
+   "lista": 626.21
+  },
+  {
+   "codigo": "6180",
+   "desc": "Make Esponja baño grande",
+   "seccion": "DE BAÑO",
+   "uxb": 120,
+   "lista": 285.95
+  },
+  {
+   "codigo": "907948",
+   "desc": "Make Guantes afelpados make small",
+   "seccion": "CLASSIC",
+   "uxb": 144,
+   "lista": 1120.18
+  },
+  {
+   "codigo": "907949",
+   "desc": "Make Guantes afelpados make medium",
+   "seccion": "CLASSIC",
+   "uxb": 144,
+   "lista": 1120.18
+  },
+  {
+   "codigo": "907950",
+   "desc": "Make Guantes afelpados make large",
+   "seccion": "CLASSIC",
+   "uxb": 144,
+   "lista": 1120.18
+  },
+  {
+   "codigo": "907951",
+   "desc": "Make Guantes afelpados make extra large",
+   "seccion": "CLASSIC",
+   "uxb": 144,
+   "lista": 1120.18
+  },
+  {
+   "codigo": "6871",
+   "desc": "Make Guante soft small",
+   "seccion": "SOFT",
+   "uxb": 144,
+   "lista": 1011.68
+  },
+  {
+   "codigo": "6872",
+   "desc": "Make Guante soft medium",
+   "seccion": "SOFT",
+   "uxb": 144,
+   "lista": 1011.68
+  },
+  {
+   "codigo": "6873",
+   "desc": "Make Guante soft large",
+   "seccion": "SOFT",
+   "uxb": 144,
+   "lista": 1011.68
+  },
+  {
+   "codigo": "6874",
+   "desc": "Make Guante soft extra large",
+   "seccion": "SOFT",
+   "uxb": 144,
+   "lista": 1011.68
+  },
+  {
+   "codigo": "6978",
+   "desc": "Make Guante flex small",
+   "seccion": "FLEX",
+   "uxb": 144,
+   "lista": 729.01
+  },
+  {
+   "codigo": "6979",
+   "desc": "Make Guante flex medium",
+   "seccion": "FLEX",
+   "uxb": 144,
+   "lista": 729.01
+  },
+  {
+   "codigo": "6980",
+   "desc": "Make Guante flex large",
+   "seccion": "FLEX",
+   "uxb": 144,
+   "lista": 729.01
+  },
+  {
+   "codigo": "6981",
+   "desc": "Make Guante flex extra large",
+   "seccion": "FLEX",
+   "uxb": 144,
+   "lista": 729.01
+  },
+  {
+   "codigo": "6099",
+   "desc": "Make Bolsas para residuos 45 x 60 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 50,
+   "lista": 468.6
+  },
+  {
+   "codigo": "6100",
+   "desc": "Make Bolsas para residuos 50 x 70 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 50,
+   "lista": 513.94
+  },
+  {
+   "codigo": "6101",
+   "desc": "Make Bolsas para consorcios 60 x 90 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 30,
+   "lista": 836.73
+  },
+  {
+   "codigo": "6249",
+   "desc": "Make Bolsas para consorcios 80 x 110 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 20,
+   "lista": 1496.67
+  },
+  {
+   "codigo": "6824",
+   "desc": "Make Bolsas para consorcios 90 x 120 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 20,
+   "lista": 1886.06
+  },
+  {
+   "codigo": "6928",
+   "desc": "Make Bolsas para residuos verdes 45 x 60 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 50,
+   "lista": 554.7
+  },
+  {
+   "codigo": "6929",
+   "desc": "Make Bolsas para residuos verdes 50 x 70 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 50,
+   "lista": 826.37
+  },
+  {
+   "codigo": "6930",
+   "desc": "Make Bolsas para consorcios verdes 60 x 90 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 30,
+   "lista": 1043.52
+  },
+  {
+   "codigo": "6931",
+   "desc": "Make Bolsas para consorcios verdes 80 x 110 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 20,
+   "lista": 1619.94
+  },
+  {
+   "codigo": "6932",
+   "desc": "Make Bolsas para consorcios verdes 90 x 120 cm x 10 u",
+   "seccion": "PLANAS",
+   "uxb": 20,
+   "lista": 2108.57
+  },
+  {
+   "codigo": "6994",
+   "desc": "Make Bolsa plegada en rollo con cierra facil 45 x 60 cm x 20 u",
+   "seccion": "CON CIERRA FACIL",
+   "uxb": 20,
+   "lista": 2192.55
+  },
+  {
+   "codigo": "6995",
+   "desc": "Make Bolsa plegada en rollo con cierra facil 50 x 70 cm x 20 u",
+   "seccion": "CON CIERRA FACIL",
+   "uxb": 20,
+   "lista": 2790.13
+  },
+  {
+   "codigo": "6838",
+   "desc": "Make Bolsa rollo negra 4560 25u",
+   "seccion": "EN ROLLO",
+   "uxb": 32,
+   "lista": 1355.13
+  },
+  {
+   "codigo": "6839",
+   "desc": "Make Bolsa rollo negra 5070 25u",
+   "seccion": "EN ROLLO",
+   "uxb": 28,
+   "lista": 1669.39
+  },
+  {
+   "codigo": "6325",
+   "desc": "Make Bolsa rollo verde 4560 25u",
+   "seccion": "EN ROLLO",
+   "uxb": 32,
+   "lista": 1428.39
+  },
+  {
+   "codigo": "6828",
+   "desc": "Make Bolsa rollo verde 5070 25u",
+   "seccion": "EN ROLLO",
+   "uxb": 28,
+   "lista": 1765.92
+  },
+  {
+   "codigo": "6923",
+   "desc": "Make Bolsas plegadas en rollo para residuos 45 x 60 20u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 818.96
+  },
+  {
+   "codigo": "6924",
+   "desc": "Make Bolsas plegadas en rollo para residuos 50 x 70 20u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 1045.42
+  },
+  {
+   "codigo": "6925",
+   "desc": "Make Bolsas plegadas en rollo para residuos 60 x 90 10u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 957.23
+  },
+  {
+   "codigo": "6926",
+   "desc": "Make Bolsas plegadas en rollo para residuos 80 x 110 10u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 15,
+   "lista": 1972.03
+  },
+  {
+   "codigo": "6945",
+   "desc": "Make Bolsas plegadas en rollo para residuos verdes 45 x 60 20u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 1110.57
+  },
+  {
+   "codigo": "6946",
+   "desc": "Make Bolsas plegadas en rollo para residuos verdes 50 x 70 20u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 1423.24
+  },
+  {
+   "codigo": "6947",
+   "desc": "Make Bolsas plegadas en rollo para residuos verdes 60 x 90 10u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 1293.7
+  },
+  {
+   "codigo": "6948",
+   "desc": "Make Bolsas plegadas en rollo para residuos verdes 80 x 110 10u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 15,
+   "lista": 2700.59
+  },
+  {
+   "codigo": "6970",
+   "desc": "Make Bolsas plegadas en rollo p/residuos baño/ofi 40x40 b x 20 u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 917.1
+  },
+  {
+   "codigo": "6971",
+   "desc": "Make Bolsas plegadas en rollo p/mascotas 40x40 negra x 20 u",
+   "seccion": "PLEGADAS EN ROLLO",
+   "uxb": 24,
+   "lista": 676.77
+  },
+  {
+   "codigo": "6938",
+   "desc": "Make Bolsas residuos granel 80x110 (30 micrones)",
+   "seccion": "A GRANEL",
+   "uxb": 200,
+   "lista": 95.49
+  },
+  {
+   "codigo": "6939",
+   "desc": "Make Bolsas residuos granel 90x120 (30 micrones)",
+   "seccion": "A GRANEL",
+   "uxb": 200,
+   "lista": 131.67
+  },
+  {
+   "codigo": "6144",
+   "desc": "Make Repasador de toalla 45 x 58 con jackard",
+   "seccion": "REPASADORES",
+   "uxb": 60,
+   "lista": 1418.33
+  },
+  {
+   "codigo": "6235",
+   "desc": "Make Repasador estampado nido abeja 38 x 62",
+   "seccion": "REPASADORES",
+   "uxb": 60,
+   "lista": 1683.14
+  },
+  {
+   "codigo": "6355",
+   "desc": "Make Repasador nido de abeja con guarda francesa",
+   "seccion": "REPASADORES",
+   "uxb": 60,
+   "lista": 1612.53
+  },
+  {
+   "codigo": "6356",
+   "desc": "Make Repasador telar plano con guarda francesa",
+   "seccion": "REPASADORES",
+   "uxb": 60,
+   "lista": 1612.53
+  },
+  {
+   "codigo": "6714",
+   "desc": "Make Repasador toalla estampado",
+   "seccion": "REPASADORES",
+   "uxb": 60,
+   "lista": 2804.15
+  },
+  {
+   "codigo": "7041",
+   "desc": "Make Repasador microfibra nido de abeja 40 x 55",
+   "seccion": "REPASADORES",
+   "uxb": 120,
+   "lista": 1417.79
+  },
+  {
+   "codigo": "7043",
+   "desc": "Make Repasador tejido plano premium 40x65",
+   "seccion": "REPASADORES",
+   "uxb": 120,
+   "lista": 1613.12
+  },
+  {
+   "codigo": "7044",
+   "desc": "Make Repasador tejido plano super 40x65",
+   "seccion": "REPASADORES",
+   "uxb": 120,
+   "lista": 1313.54
+  },
+  {
+   "codigo": "7045",
+   "desc": "Make Repasador toalla 40x60",
+   "seccion": "REPASADORES",
+   "uxb": 120,
+   "lista": 1958.78
+  },
+  {
+   "codigo": "7981",
+   "desc": "Make Rejilla cocina x 12 unidades",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 542.97
+  },
+  {
+   "codigo": "7983",
+   "desc": "Make Rejilla americana x 12 unidades",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 376.34
+  },
+  {
+   "codigo": "7940",
+   "desc": "Make Rejilla pabilo liviana x 12 unidades",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 367.98
+  },
+  {
+   "codigo": "7982",
+   "desc": "Make Rejilla pabilo super x 12 unidades",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 517.59
+  },
+  {
+   "codigo": "6942",
+   "desc": "Make Rejilla multicolor \"rayadita\"",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 572.47
+  },
+  {
+   "codigo": "6123",
+   "desc": "Make Rejilla nido abeja color make",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 942.64
+  },
+  {
+   "codigo": "7947",
+   "desc": "Make Rejilla auto pesada x 12 unidades",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 60,
+   "lista": 1786.52
+  },
+  {
+   "codigo": "6765",
+   "desc": "Make Rejilla esponja x 12 unidades (cocina super)",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 685.18
+  },
+  {
+   "codigo": "6716",
+   "desc": "Make Toallita multiuso color",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 60,
+   "lista": 1420.9
+  },
+  {
+   "codigo": "7944",
+   "desc": "Make Franela naranja 40 x 50",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 869.38
+  },
+  {
+   "codigo": "6797",
+   "desc": "Make Microfibra multiuso 38x35",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 120,
+   "lista": 658.09
+  },
+  {
+   "codigo": "7053",
+   "desc": "Make Guante microfibra multiuso",
+   "seccion": "REJILLAS Y MAS",
+   "uxb": 24,
+   "lista": 2341.47
+  },
+  {
+   "codigo": "6712",
+   "desc": "Make Trapo piso nido de abeja 50 x 60 blanco",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1425.57
+  },
+  {
+   "codigo": "6713",
+   "desc": "Make Trapo piso nido de abeja 50 x 60 gris",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1425.57
+  },
+  {
+   "codigo": "6573",
+   "desc": "Make Trapo de piso rayado 50 x 60",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1277.71
+  },
+  {
+   "codigo": "7942",
+   "desc": "Make Trapo de piso tejido reforzado blanco 50 x 60",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1277.71
+  },
+  {
+   "codigo": "7943",
+   "desc": "Make Trapo de piso tejido reforzado gris 50 x 60",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1277.71
+  },
+  {
+   "codigo": "6251",
+   "desc": "Make Trapo extrasuave gris 50 x 55",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 120,
+   "lista": 734.65
+  },
+  {
+   "codigo": "6252",
+   "desc": "Make Trapo extrasuave blanco 50 x 55",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 120,
+   "lista": 927.09
+  },
+  {
+   "codigo": "6455",
+   "desc": "Make Trapo consorcio blanco 60 x 70",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 60,
+   "lista": 1812.91
+  },
+  {
+   "codigo": "7101",
+   "desc": "Make Trapo de piso extra suave gris 50x60",
+   "seccion": "TRAPOS DE PISO",
+   "uxb": 240,
+   "lista": 673.01
+  },
+  {
+   "codigo": "6513",
+   "desc": "Make Rollo paño amarillo pre cortado x 24 unid",
+   "seccion": "PAÑOS",
+   "uxb": 12,
+   "lista": 4507.5
+  },
+  {
+   "codigo": "395",
+   "desc": "Make Paño amarillo 38x40",
+   "seccion": "PAÑOS",
+   "uxb": 250,
+   "lista": 294.41
+  },
+  {
+   "codigo": "396",
+   "desc": "Make Paño colores varios 38x40",
+   "seccion": "PAÑOS",
+   "uxb": 250,
+   "lista": 309.06
+  },
+  {
+   "codigo": "6353",
+   "desc": "Make Paño amarillo 38x40 envasado x 1",
+   "seccion": "PAÑOS",
+   "uxb": 60,
+   "lista": 571.76
+  },
+  {
+   "codigo": "107906",
+   "desc": "Make Paño amarillo 38x40 envasado x 3",
+   "seccion": "PAÑOS",
+   "uxb": 25,
+   "lista": 1223.82
+  },
+  {
+   "codigo": "907970",
+   "desc": "Make Paño celeste 38x40 envasado x 3",
+   "seccion": "PAÑOS",
+   "uxb": 25,
+   "lista": 1223.82
+  },
+  {
+   "codigo": "307505",
+   "desc": "Make Paño amarillo 50x55 sin envasar",
+   "seccion": "PAÑOS",
+   "uxb": 100,
+   "lista": 931.93
+  },
+  {
+   "codigo": "107907",
+   "desc": "Make Paño amarillo 50x55 envasado x 1",
+   "seccion": "PAÑOS",
+   "uxb": 60,
+   "lista": 1206.48
+  },
+  {
+   "codigo": "7054",
+   "desc": "Make Paño esponja de microfibra",
+   "seccion": "PAÑOS",
+   "uxb": 120,
+   "lista": 809.65
+  },
+  {
+   "codigo": "6364",
+   "desc": "Make Balde plastico 10 lt",
+   "seccion": "BALDES",
+   "uxb": 20,
+   "lista": 2562.43
+  },
+  {
+   "codigo": "6934",
+   "desc": "Make Balde black 10 lts",
+   "seccion": "BALDES",
+   "uxb": 20,
+   "lista": 2093.13
+  },
+  {
+   "codigo": "6316",
+   "desc": "Make Balde plastico 11 lt",
+   "seccion": "BALDES",
+   "uxb": 18,
+   "lista": 3860.25
+  },
+  {
+   "codigo": "6128",
+   "desc": "Make Balde plastico 13 lt",
+   "seccion": "BALDES",
+   "uxb": 18,
+   "lista": 4112.54
+  },
+  {
+   "codigo": "6377",
+   "desc": "Make Balde plastico 17 lt",
+   "seccion": "BALDES",
+   "uxb": 20,
+   "lista": 6709.58
+  },
+  {
+   "codigo": "6504",
+   "desc": "Make Balde plastico oval con escurridor",
+   "seccion": "CON ESCURRIDOR",
+   "uxb": 12,
+   "lista": 7639.1
+  },
+  {
+   "codigo": "6498",
+   "desc": "Make Balde plastico 13 lts con escurridor",
+   "seccion": "CON ESCURRIDOR",
+   "uxb": 18,
+   "lista": 5826.75
+  },
+  {
+   "codigo": "6999",
+   "desc": "Make Balde oval c/escurridor black",
+   "seccion": "CON ESCURRIDOR",
+   "uxb": 12,
+   "lista": 7331.2
+  },
+  {
+   "codigo": "6365",
+   "desc": "Make Palangana 6 lt",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 25,
+   "lista": 1559.14
+  },
+  {
+   "codigo": "6366",
+   "desc": "Make Palangana 9 lt",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 25,
+   "lista": 2189.76
+  },
+  {
+   "codigo": "6367",
+   "desc": "Make Fuenton redondo 17 lts",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 25,
+   "lista": 3282.36
+  },
+  {
+   "codigo": "6369",
+   "desc": "Make Fuenton cuadrado 10 lts",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 12,
+   "lista": 2869.67
+  },
+  {
+   "codigo": "6831",
+   "desc": "Make Fuenton redondo 32 lts",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 10,
+   "lista": 5592.15
+  },
+  {
+   "codigo": "6566",
+   "desc": "Make Batea blanca mediana",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 24,
+   "lista": 4037.53
+  },
+  {
+   "codigo": "6567",
+   "desc": "Make Batea blanca grande",
+   "seccion": "PALANGANAS, FUENTONES Y BATEAS",
+   "uxb": 12,
+   "lista": 5589.47
+  },
+  {
+   "codigo": "6903",
+   "desc": "Make Escobillon super",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 3030.46
+  },
+  {
+   "codigo": "6127",
+   "desc": "Make Escobillon 6 hileras",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 2695.13
+  },
+  {
+   "codigo": "6647",
+   "desc": "Make Escobillon black 6",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 2393.46
+  },
+  {
+   "codigo": "6473",
+   "desc": "Make Escobillón góndola",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 2479.65
+  },
+  {
+   "codigo": "6306",
+   "desc": "Make Escobillon fibra corta",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 2674.66
+  },
+  {
+   "codigo": "6474",
+   "desc": "Make Escobillon pelo suave base laqueada",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 3038.09
+  },
+  {
+   "codigo": "6742",
+   "desc": "Make Escobillon gondola laqueado para interiores",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 3004.82
+  },
+  {
+   "codigo": "6967",
+   "desc": "Make Escobillon 6 hil base naranja virgen",
+   "seccion": "ESCOBILLONES",
+   "uxb": 12,
+   "lista": 2552.89
+  },
+  {
+   "codigo": "6697",
+   "desc": "Make Escobillon anden 6 hil fibra cerda 60 cm",
+   "seccion": "ESCOBILLONES",
+   "uxb": 6,
+   "lista": 10127.25
+  },
+  {
+   "codigo": "6698",
+   "desc": "Make Escobillon anden 6 hil fibra plástica 60 cm",
+   "seccion": "ESCOBILLONES",
+   "uxb": 6,
+   "lista": 7188.18
+  },
+  {
+   "codigo": "6699",
+   "desc": "Make Escobillon anden 6 hil fibra barrendero 60 cm",
+   "seccion": "ESCOBILLONES",
+   "uxb": 6,
+   "lista": 8408.7
+  },
+  {
+   "codigo": "7064",
+   "desc": "Make Escobillon para pelos",
+   "seccion": "ESCOBILLONES",
+   "uxb": 10,
+   "lista": 11411.09
+  },
+  {
+   "codigo": "6790",
+   "desc": "Make Escoba recta exterior",
+   "seccion": "ESCOBAS",
+   "uxb": 12,
+   "lista": 3187.42
+  },
+  {
+   "codigo": "6760",
+   "desc": "Make Cabos de chapa forrado liso",
+   "seccion": "CABOS",
+   "uxb": 24,
+   "lista": 964.94
+  },
+  {
+   "codigo": "6944",
+   "desc": "Make Cabos de chapa forrado naranja c/ capuchon",
+   "seccion": "CABOS",
+   "uxb": 24,
+   "lista": 964.94
+  },
+  {
+   "codigo": "6194",
+   "desc": "Make Cabo de madera forrado liso o floreado",
+   "seccion": "CABOS",
+   "uxb": 50,
+   "lista": 582.11
+  },
+  {
+   "codigo": "6757",
+   "desc": "Make Cabos de chapa para pala blancos",
+   "seccion": "CABOS",
+   "uxb": 24,
+   "lista": 713.31
+  },
+  {
+   "codigo": "6943",
+   "desc": "Make Cabos de chapa para pala multicolor",
+   "seccion": "CABOS",
+   "uxb": 24,
+   "lista": 568.9
+  },
+  {
+   "codigo": "6996",
+   "desc": "Make Cabo de aluminio rosca italiana",
+   "seccion": "CABOS",
+   "uxb": 50,
+   "lista": 3084.93
+  },
+  {
+   "codigo": "6289",
+   "desc": "Make Cepillo planchita con mango",
+   "seccion": "CEPILLOS",
+   "uxb": 12,
+   "lista": 1760.54
+  },
+  {
+   "codigo": "6494",
+   "desc": "Make Cepillo lava zapatillas",
+   "seccion": "CEPILLOS",
+   "uxb": 30,
+   "lista": 2025.07
+  },
+  {
+   "codigo": "6799",
+   "desc": "Make Cepillo de mano anatómico",
+   "seccion": "CEPILLOS",
+   "uxb": 12,
+   "lista": 1713.47
+  },
+  {
+   "codigo": "6787",
+   "desc": "Make Cepillo lava jean",
+   "seccion": "CEPILLOS",
+   "uxb": 12,
+   "lista": 1518.21
+  },
+  {
+   "codigo": "6170",
+   "desc": "Make Cepillo de mano base de madera",
+   "seccion": "CEPILLOS",
+   "uxb": 12,
+   "lista": 1339.14
+  },
+  {
+   "codigo": "85174",
+   "desc": "Make Cepillo de mano oval m-16 condor",
+   "seccion": "CEPILLOS",
+   "uxb": 36,
+   "lista": 922.73
+  },
+  {
+   "codigo": "6465",
+   "desc": "Make Cepillo limpia techo",
+   "seccion": "CEPILLOS",
+   "uxb": 6,
+   "lista": 2444.76
+  },
+  {
+   "codigo": "6475",
+   "desc": "Make Cepillo violin",
+   "seccion": "CEPILLOS",
+   "uxb": 24,
+   "lista": 2397.65
+  },
+  {
+   "codigo": "6476",
+   "desc": "Make Cepillo para zapatos",
+   "seccion": "ROPA Y CALZADO",
+   "uxb": 6,
+   "lista": 2143.15
+  },
+  {
+   "codigo": "6477",
+   "desc": "Make Cepillo para ropa",
+   "seccion": "ROPA Y CALZADO",
+   "uxb": 6,
+   "lista": 3224.61
+  },
+  {
+   "codigo": "6847",
+   "desc": "Make Quita pelusa",
+   "seccion": "ROPA Y CALZADO",
+   "uxb": 24,
+   "lista": 2368.02
+  },
+  {
+   "codigo": "1215",
+   "desc": "Make Cepillo limpia uñas acrílico con mango",
+   "seccion": "CUIDADO CORPORAL",
+   "uxb": 288,
+   "lista": 615.06
+  },
+  {
+   "codigo": "6292",
+   "desc": "Make Cepillo lava espaldas",
+   "seccion": "CUIDADO CORPORAL",
+   "uxb": 24,
+   "lista": 1781.98
+  },
+  {
+   "codigo": "6478",
+   "desc": "Make Escobilla tradicional con base",
+   "seccion": "PARA SANITARIOS",
+   "uxb": 12,
+   "lista": 3046.13
+  },
+  {
+   "codigo": "6512",
+   "desc": "Make Escobilla sanitaria palito",
+   "seccion": "PARA SANITARIOS",
+   "uxb": 36,
+   "lista": 1282.05
+  },
+  {
+   "codigo": "6304",
+   "desc": "Make Escobilla wc para sanitarios",
+   "seccion": "PARA SANITARIOS",
+   "uxb": 12,
+   "lista": 1673.87
+  },
+  {
+   "codigo": "6079",
+   "desc": "Make Limpiavidrios de 20 c/ cabo",
+   "seccion": "LIMPIAVIDRIOS",
+   "uxb": 12,
+   "lista": 2454.2
+  },
+  {
+   "codigo": "6080",
+   "desc": "Make Limpiavidrios de 30 c/ cabo",
+   "seccion": "LIMPIAVIDRIOS",
+   "uxb": 12,
+   "lista": 2997.95
+  },
+  {
+   "codigo": "6691",
+   "desc": "Make Limpiavidrios 20 cm cola de ballena",
+   "seccion": "LIMPIAVIDRIOS",
+   "uxb": 18,
+   "lista": 863.56
+  },
+  {
+   "codigo": "6846",
+   "desc": "Make Limpiavidrios gold",
+   "seccion": "LIMPIAVIDRIOS",
+   "uxb": 12,
+   "lista": 3658.66
+  },
+  {
+   "codigo": "6900",
+   "desc": "Make Limpiavidrios pro",
+   "seccion": "LIMPIAVIDRIOS",
+   "uxb": 16,
+   "lista": 3677.23
+  },
+  {
+   "codigo": "6178",
+   "desc": "Make Pasacera de madera sin cabo",
+   "seccion": "PASACERAS",
+   "uxb": 24,
+   "lista": 1429.63
+  },
+  {
+   "codigo": "6081",
+   "desc": "Make Pasacera de plastico sin cabo",
+   "seccion": "PASACERAS",
+   "uxb": 24,
+   "lista": 1719.53
+  },
+  {
+   "codigo": "6507",
+   "desc": "Make Mopa de algodón",
+   "seccion": "MOPAS",
+   "uxb": 24,
+   "lista": 1652.17
+  },
+  {
+   "codigo": "6888",
+   "desc": "Make Mopa microfibra bicolor",
+   "seccion": "MOPAS",
+   "uxb": 24,
+   "lista": 2144.02
+  },
+  {
+   "codigo": "6557",
+   "desc": "Make Secador rojo nº 30 economico",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 1212.54
+  },
+  {
+   "codigo": "30N",
+   "desc": "Make Secador negro nº 30",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 1690.97
+  },
+  {
+   "codigo": "40N",
+   "desc": "Make Secador negro nº 40",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 1850.25
+  },
+  {
+   "codigo": "50N",
+   "desc": "Make Secador negro nº 50",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 2378.02
+  },
+  {
+   "codigo": "30S",
+   "desc": "Make Secador rojo nº 30",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 2027.26
+  },
+  {
+   "codigo": "40S",
+   "desc": "Make Secador rojo nº 40",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 2177.94
+  },
+  {
+   "codigo": "50S",
+   "desc": "Make Secador rojo nº 50",
+   "seccion": "DE GOMA",
+   "uxb": 12,
+   "lista": 2647.1
+  },
+  {
+   "codigo": "6469",
+   "desc": "Make Secador goma doble 40",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 2651.9
+  },
+  {
+   "codigo": "6470",
+   "desc": "Make Secador goma doble 30",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 2361.95
+  },
+  {
+   "codigo": "6077",
+   "desc": "Make Secador de plastico y goma de 40",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 24,
+   "lista": 2041.92
+  },
+  {
+   "codigo": "6078",
+   "desc": "Make Secador de plastico y goma de 30",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 1797.18
+  },
+  {
+   "codigo": "6817",
+   "desc": "Make Secador goma doble 34 make",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 3204.14
+  },
+  {
+   "codigo": "6816",
+   "desc": "Make Secador goma doble 41 make",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 3309.2
+  },
+  {
+   "codigo": "6574",
+   "desc": "Make Secador plástico goma doble 40",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 2618.55
+  },
+  {
+   "codigo": "6845",
+   "desc": "Make Secador gold",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 2310.5
+  },
+  {
+   "codigo": "6940",
+   "desc": "Make Secador black",
+   "seccion": "PLASTICO Y GOMA",
+   "uxb": 12,
+   "lista": 2232.43
+  },
+  {
+   "codigo": "SN",
+   "desc": "Make Sopapa negra",
+   "seccion": "SOPAPAS",
+   "uxb": 24,
+   "lista": 1156.88
+  },
+  {
+   "codigo": "6876",
+   "desc": "Make Sopapa con cabo plástico",
+   "seccion": "SOPAPAS",
+   "uxb": 34,
+   "lista": 1481.82
+  },
+  {
+   "codigo": "6898",
+   "desc": "Make Sopapon",
+   "seccion": "SOPAPAS",
+   "uxb": 12,
+   "lista": 1855.99
+  },
+  {
+   "codigo": "6505",
+   "desc": "Make Pala medialuna reforzada plástica",
+   "seccion": "PALAS",
+   "uxb": 24,
+   "lista": 3156
+  },
+  {
+   "codigo": "6187",
+   "desc": "Make Pala con cabo make",
+   "seccion": "PALAS",
+   "uxb": 24,
+   "lista": 2475.39
+  },
+  {
+   "codigo": "6343",
+   "desc": "Make Pala rebatible con goma",
+   "seccion": "PALAS",
+   "uxb": 24,
+   "lista": 4440.08
+  },
+  {
+   "codigo": "6794",
+   "desc": "Make Pala premiun black cabo de chapa naranja",
+   "seccion": "PALAS",
+   "uxb": 24,
+   "lista": 5191.48
+  },
+  {
+   "codigo": "7975",
+   "desc": "Make Pala plastica make",
+   "seccion": "PALAS",
+   "uxb": 48,
+   "lista": 767.82
+  },
+  {
+   "codigo": "7978",
+   "desc": "Make Pala plastica mod.c/goma make",
+   "seccion": "PALAS",
+   "uxb": 60,
+   "lista": 1725.65
+  },
+  {
+   "codigo": "7976",
+   "desc": "Make Pala plastica mod.\"x\" make",
+   "seccion": "PALAS",
+   "uxb": 60,
+   "lista": 1105.08
+  },
+  {
+   "codigo": "7002",
+   "desc": "Make Pala bi-inyectada c/cabo",
+   "seccion": "PALAS",
+   "uxb": 12,
+   "lista": 3541.67
+  }
+ ]
+}

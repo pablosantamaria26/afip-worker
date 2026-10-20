@@ -44,6 +44,7 @@ async function crearPdfLocal(html, _fileName) {
 // ✅ SUPABASE — persistencia real (sobrevive redeploys de Render)
 // ================================================================
 const { createClient } = require("@supabase/supabase-js");
+const { armarItemsMayoristas } = require("./lib/items-extracto");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
@@ -61,7 +62,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-10-FACTURA-A-B";
+const APP_VERSION = "2026-10-ITEMS-MAYORISTA";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -904,8 +905,11 @@ body { margin: 0; color: #0f172a; background: #ffffff; }
 .ref-transf-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #64748b; font-size: 10.5px; color: #334155; }
 .ref-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; white-space: nowrap; }
 .ref-sep { width: 1px; background: #cbd5e1; align-self: stretch; margin: 0 2px; }
-table { width: 100%; border-collapse: collapse; margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
 th { background: #1e293b; color: #ffffff; padding: 13px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; }
+thead th:first-child { border-top-left-radius: 7px; }
+thead th:last-child { border-top-right-radius: 7px; }
+thead { display: table-header-group; }
 th.r { text-align: right; }
 .r { text-align: right; }
 tbody tr:nth-child(even) td { background: #f8fafc; }
@@ -3652,66 +3656,12 @@ function detectarNombreChino(nombre) {
   return n.split(/\s+/).some(w => APELLIDOS_CHINOS.has(w));
 }
 
+// Ítems de las facturas de extracto: precios de lista reales y cantidades mayoristas (ver lib/items-extracto.js)
 function buildItemsParaMonto(montoTotal) {
-  const R2 = n => Math.round((n + 1e-9) * 100) / 100;
-
-  const shuffle = arr => {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  };
-
-  const makePool = shuffle(CATALOGO_MAKE);
-  const otroPool = shuffle([...CATALOGO_ROMYL, ...CATALOGO_SAMANTHA, ...CATALOGO_TODOESPONJA]);
-  const nMake    = 3 + Math.floor(Math.random() * 2); // 3–4 items Make
-  const nOtro    = 2 + Math.floor(Math.random() * 2); // 2–3 items otros
-  const selected = [...makePool.slice(0, nMake), ...otroPool.slice(0, nOtro)];
-
-  // Pesos aleatorios normalizados → cada ítem siempre obtiene una porción positiva del total.
-  // Así se elimina la posibilidad de que el "remaining" quede negativo (bug de ítems negativos).
-  const rawW = selected.map(() => 0.5 + Math.random());
-  const sumW = rawW.reduce((a, b) => a + b, 0);
-
-  // Cantidad natural según rango de precio del producto
-  function naturalQty(precio) {
-    if (precio >= 8000) return 1;
-    if (precio >= 3000) return [1, 6][Math.floor(Math.random() * 2)];
-    return [1, 6, 12][Math.floor(Math.random() * 3)];
-  }
-
-  const items = [];
-  let remaining = montoTotal;
-
-  for (let i = 0; i < selected.length; i++) {
-    const p      = selected[i];
-    const isLast = i === selected.length - 1;
-    const qty    = naturalQty(p.precio);
-
-    // Subtotal proporcional al peso — siempre positivo; el último absorbe el resto
-    const subtotal = isLast
-      ? R2(Math.max(0.01, remaining))
-      : R2(montoTotal * rawW[i] / sumW);
-
-    const precio         = R2(subtotal / qty);
-    const actualSubtotal = R2(precio * qty);
-
-    items.push({ descripcion: p.desc, cantidad: qty, precioConIva: precio, subtotalConIva: actualSubtotal });
-    remaining = R2(remaining - actualSubtotal);
-  }
-
-  // Cierre final: diferencia de redondeo absorbe el último ítem
-  const totalCalc = R2(items.reduce((s, x) => s + x.subtotalConIva, 0));
-  const diff = R2(montoTotal - totalCalc);
-  if (Math.abs(diff) >= 0.01 && items.length > 0) {
-    const last = items[items.length - 1];
-    last.subtotalConIva = R2(last.subtotalConIva + diff);
-    last.precioConIva   = R2(last.subtotalConIva / last.cantidad);
-  }
-
-  return items;
+  return armarItemsMayoristas(montoTotal, {
+    otros: [...CATALOGO_ROMYL, ...CATALOGO_SAMANTHA, ...CATALOGO_TODOESPONJA],
+    makeFallback: CATALOGO_MAKE
+  });
 }
 
 // ── Parseo directo de PDF Santander (sin Gemini) ─────────────────
