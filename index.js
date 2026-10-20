@@ -61,7 +61,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-10-FACTURA-A";
+const APP_VERSION = "2026-10-FACTURA-A-B";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -103,6 +103,8 @@ const EMISOR = {
 const TIPOS_CBTE = {
   1:  { letra: "A", cod: "01", nombre: "FACTURA",          prefijo: "FA" },
   3:  { letra: "A", cod: "03", nombre: "NOTA DE CRÉDITO",  prefijo: "NC" },
+  6:  { letra: "B", cod: "06", nombre: "FACTURA",          prefijo: "FA" },
+  8:  { letra: "B", cod: "08", nombre: "NOTA DE CRÉDITO",  prefijo: "NC" },
   51: { letra: "M", cod: "51", nombre: "FACTURA",          prefijo: "FA" },
   53: { letra: "M", cod: "53", nombre: "NOTA DE CRÉDITO",  prefijo: "NC" },
 };
@@ -364,13 +366,25 @@ function condicionIvaDesdeConstancia(p) {
   return { id: null, detalle: "constancia incompleta" };
 }
 
-// Factura A sólo admite receptores RI o monotributistas. Si el padrón no permite
-// determinarlo se asume RI (criterio histórico). CF/exento → corresponde Factura B.
-function condicionIvaReceptorParaClaseA(rec, cuit) {
+const CBTE_TIPO_B = 6;
+const CONDICIONES_VALIDAS_CLASE_B = new Set([4, 5]);
+
+// Qué comprobante corresponde según la condición IVA del receptor en ARCA:
+// RI / monotributo → Factura A; consumidor final / exento → Factura B.
+// Si el padrón no permite determinarlo se asume RI → A (criterio histórico).
+function comprobanteParaReceptor(rec) {
   const id = Number(rec?.condicionIvaId || 0);
-  if (!rec?.condicionConfirmada || !id) return 1;
-  if (CONDICIONES_VALIDAS_CLASE_A.has(id)) return id;
-  throw new Error(`El CUIT ${cuit} figura en ARCA como "${CONDICION_IVA_TXT[id] || id}": no corresponde Factura A (sería Factura B). No se emitió.`);
+  if (!rec?.condicionConfirmada || !id) return { tipo: CBTE_TIPO_REAL, condId: 1 };
+  if (CONDICIONES_VALIDAS_CLASE_A.has(id)) return { tipo: CBTE_TIPO_REAL, condId: id };
+  if (CONDICIONES_VALIDAS_CLASE_B.has(id)) return { tipo: CBTE_TIPO_B, condId: id };
+  return { tipo: CBTE_TIPO_REAL, condId: 1 };
+}
+
+// NC: misma clase que el comprobante que anula; la condición tiene que ser válida para esa clase
+function condicionIvaParaNC(rec, tipoNC) {
+  const id = Number(rec?.condicionIvaId || 0);
+  if (infoTipoCbte(tipoNC).letra === "B") return CONDICIONES_VALIDAS_CLASE_B.has(id) ? id : 5;
+  return CONDICIONES_VALIDAS_CLASE_A.has(id) ? id : 1;
 }
 
 const padronCache = new Map();
@@ -825,15 +839,39 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
   const fechaAR = fechaISO.split("-").reverse().join("/");
   const caeVtoAR = caeVtoISO ? String(caeVtoISO).split("-").reverse().join("/") : "VISTA PREVIA";
   const caeText = cae || "VISTA PREVIA";
+  // Clase B: el IVA no se discrimina; precios con IVA incluido (RG 1415)
+  const esB = tipoInfo.letra === "B";
+  const td = `padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;`;
   const rows = items.map((it, i) => `
     <tr style="background-color: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"}; page-break-inside: avoid;">
-      <td style="padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;">${safeText(it.descripcion)}</td>
-      <td class="r" style="padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;">${it.cantidad}</td>
-      <td class="r" style="padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;">$ ${formatMoneyAR(it.precioNeto)}</td>
-      <td class="r" style="padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;">$ ${formatMoneyAR(it.subtotalNeto)}</td>
-      <td class="r" style="padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;">21%</td>
-      <td class="r" style="padding:10px; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; font-size:12px;">$ ${formatMoneyAR(it.subtotalConIva)}</td>
+      <td style="${td}">${safeText(it.descripcion)}</td>
+      <td class="r" style="${td}">${it.cantidad}</td>
+      ${esB ? `
+      <td class="r" style="${td}">$ ${formatMoneyAR(it.precioConIva)}</td>` : `
+      <td class="r" style="${td}">$ ${formatMoneyAR(it.precioNeto)}</td>
+      <td class="r" style="${td}">$ ${formatMoneyAR(it.subtotalNeto)}</td>
+      <td class="r" style="${td}">21%</td>`}
+      <td class="r" style="${td} font-weight:bold; color:#0f172a;">$ ${formatMoneyAR(it.subtotalConIva)}</td>
     </tr>`).join("");
+  const thead = esB
+    ? `<th>Producto / Servicio</th><th class="r" style="width:50px;">Cant</th><th class="r" style="width:110px;">Precio Unit.</th><th class="r" style="width:110px;">Subtotal</th>`
+    : `<th>Producto / Servicio</th><th class="r" style="width:50px;">Cant</th>
+      <th class="r" style="width:90px;">Precio Unit.</th><th class="r" style="width:90px;">Subtotal Neto</th>
+      <th class="r" style="width:50px;">Alic. IVA</th><th class="r" style="width:100px;">Subtotal c/IVA</th>`;
+  const nCols = esB ? 4 : 6;
+  const totalesHtml = esB
+    ? `<div class="total-row"><span>Subtotal:</span><strong>$ ${formatMoneyAR(total)}</strong></div>
+      <div class="total-row"><span>Importe Otros Tributos:</span><strong>$ 0,00</strong></div>
+      <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>
+      <div class="transparencia">
+        <div class="transparencia-tit">Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)</div>
+        <div class="total-row"><span>IVA Contenido:</span><strong>$ ${formatMoneyAR(iva)}</strong></div>
+        <div class="total-row" style="margin-bottom:0;"><span>Otros Impuestos Nacionales Indirectos:</span><strong>$ 0,00</strong></div>
+      </div>`
+    : `<div class="total-row"><span>Importe Neto Gravado:</span><strong>$ ${formatMoneyAR(neto)}</strong></div>
+      <div class="total-row"><span>IVA 21%:</span><strong>$ ${formatMoneyAR(iva)}</strong></div>
+      <div class="total-row"><span>Importe Otros Tributos:</span><strong>$ 0,00</strong></div>
+      <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>`;
   const pageStyle = isPreview ? `width: 100%; padding: 10px; zoom: 0.8;` : `width: 820px; margin: 0 auto; padding: 30px;`;
   const domRemito = String(receptor?.domicilioRemito || "").trim();
   const domAfip = String(receptor?.domicilioAfip || "").trim();
@@ -878,6 +916,8 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
 .arca-box { flex: 1; display: flex; align-items: center; justify-content: space-between; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; background: #f8fafc; }
 .arca-info { font-size: 11px; color: #334155; line-height: 1.8; }
 .qr { width: 110px; height: 110px; }
+.transparencia { margin-top: 14px; padding: 10px 12px; border: 1px dashed #94a3b8; border-radius: 6px; background: #f8fafc; }
+.transparencia-tit { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; margin-bottom: 7px; }
 .leyenda { text-align: center; font-size: 10px; font-weight: bold; color: #64748b; margin-top: 22px; border-top: 1px dashed #cbd5e1; padding-top: 10px; page-break-inside: avoid; }
 .page-footer { text-align: center; margin-top: 28px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-size: 9px; color: #94a3b8; letter-spacing: 0.4px; }
 </style>
@@ -918,12 +958,8 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
     ${(refBanco || refFechaTransf) ? `<div class="ref-transf-row"><span class="ref-label">Transf. bancaria</span><span class="ref-sep"></span>${refBanco ? `<span>Ref: <strong>${safeText(refBanco)}</strong></span>` : ""}${refBanco && refFechaTransf ? `<span style="color:#cbd5e1;margin:0 2px;">·</span>` : ""}${refFechaTransf ? `<span>Fecha: <strong>${safeText(refFechaTransf)}</strong></span>` : ""}</div>` : ""}
   </div>
   <table>
-    <thead><tr>
-      <th>Producto / Servicio</th><th class="r" style="width:50px;">Cant</th>
-      <th class="r" style="width:90px;">Precio Unit.</th><th class="r" style="width:90px;">Subtotal Neto</th>
-      <th class="r" style="width:50px;">Alic. IVA</th><th class="r" style="width:100px;">Subtotal c/IVA</th>
-    </tr></thead>
-    <tbody>${rows || `<tr><td colspan="6" style="padding:20px; text-align:center;">Sin ítems detallados</td></tr>`}</tbody>
+    <thead><tr>${thead}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="${nCols}" style="padding:20px; text-align:center;">Sin ítems detallados</td></tr>`}</tbody>
   </table>
   <div class="footer-grid">
     <div class="arca-box">
@@ -941,10 +977,7 @@ tbody tr:nth-child(even) td { background: #f8fafc; }
         <div class="total-row"><span>Descuento (${formatMoneyAR(descuentoPct)}%):</span><strong>-$ ${formatMoneyAR(descuentoImporte)}</strong></div>
         <div class="total-row"><span>Total Remito c/desc:</span><strong>$ ${formatMoneyAR(totalFinal || total)}</strong></div>
         <div style="height:10px;"></div>` : ""}
-      <div class="total-row"><span>Importe Neto Gravado:</span><strong>$ ${formatMoneyAR(neto)}</strong></div>
-      <div class="total-row"><span>IVA 21%:</span><strong>$ ${formatMoneyAR(iva)}</strong></div>
-      <div class="total-row"><span>Importe Otros Tributos:</span><strong>$ 0,00</strong></div>
-      <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>
+      ${totalesHtml}
     </div>
   </div>
   ${leyendas.map(l => `<div class="leyenda">${safeText(l)}</div>`).join("")}
@@ -962,10 +995,8 @@ app.get("/padron/:cuit", async (req, res) => {
   if (cuit.length !== 11) return res.status(400).json({ ok: false, message: "CUIT inválido" });
   try {
     const rec = await getReceptorDesdePadron(cuit, { fresco: req.query.fresco === "1" });
-    let facturaA;
-    try { facturaA = { ok: true, condicionIvaReceptorId: condicionIvaReceptorParaClaseA(rec, cuit) }; }
-    catch (e) { facturaA = { ok: false, motivo: e.message }; }
-    res.json({ ok: true, cuit, ...rec, facturaA });
+    const { tipo, condId } = comprobanteParaReceptor(rec);
+    res.json({ ok: true, cuit, ...rec, comprobante: { cbteTipo: tipo, letra: infoTipoCbte(tipo).letra, condicionIvaReceptorId: condId } });
   } catch (e) {
     res.status(500).json({ ok: false, message: e?.message });
   }
@@ -1113,7 +1144,7 @@ app.get("/ver-factura/:comprobante", async (req, res) => {
 });
 
 app.get("/tipos", async (req, res) => {
-  try { res.json({ pv: await getPtoVentaSeguro(), tipos: [{ id: CBTE_TIPO_REAL, name: "Factura (WS)", habilitado: true }] }); }
+  try { res.json({ pv: await getPtoVentaSeguro(), tipos: [{ id: CBTE_TIPO_REAL, name: "Factura A (WS)", habilitado: true }, { id: CBTE_TIPO_B, name: "Factura B (WS)", habilitado: true }] }); }
   catch (e) { res.status(500).json({ message: e.message }); }
 });
 
@@ -1210,7 +1241,7 @@ app.post("/debug/preview", async (req, res) => {
         const htmlParte = buildFacturaHtml({
           receptor: { cuit: cuitCliente || "00000000000", nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: domicilioRemitoIn },
           fechaISO: todayISO(), pv, nro: 0, items: itemsCalc, neto: impNeto, iva: impIVA, total: impTotal,
-          cae: null, caeVtoISO: null, condicionVenta, qrDataUrl: null, isPreview: true, notaFactura: nota,
+          cae: null, caeVtoISO: null, condicionVenta, qrDataUrl: null, isPreview: true, cbteTipo: comprobanteParaReceptor(rec).tipo, notaFactura: nota,
           subtotalBruto: subBrutoParte, descuentoPct: pctParte, descuentoImporte: descParte, totalFinal: totalParte
         });
         htmlsPorParte.push(htmlParte.replace(/&/g, "&amp;").replace(/"/g, "&quot;"));
@@ -1260,7 +1291,7 @@ app.post("/debug/preview", async (req, res) => {
     res.send(buildFacturaHtml({
       receptor: { cuit: cuitCliente || "00000000000", nombre: rec.nombre, condicionIVA: rec.condicionIVA, domicilioAfip: rec.domicilioAfip, domicilioRemito: domicilioRemitoIn },
       fechaISO: todayISO(), pv, nro: 0, items: itemsCalc, neto: impNeto, iva: impIVA, total: impTotal,
-      cae: null, caeVtoISO: null, condicionVenta, qrDataUrl: null, isPreview: true, notaFactura: nota,
+      cae: null, caeVtoISO: null, condicionVenta, qrDataUrl: null, isPreview: true, cbteTipo: comprobanteParaReceptor(rec).tipo, notaFactura: nota,
       subtotalBruto: subBrutoParte, descuentoPct: pctParte, descuentoImporte: descParte, totalFinal: totalParte
     }));
   } catch (err) { res.status(500).send("Error generando vista previa: " + err.message); }
@@ -1459,12 +1490,7 @@ app.post("/facturar", async (req, res) => {
     }
 
     const rec = await getReceptorDesdePadron(cuitCliente);
-    let condIvaReceptorId;
-    try {
-      condIvaReceptorId = condicionIvaReceptorParaClaseA(rec, cuitCliente);
-    } catch (e) {
-      return res.status(400).json({ message: e.message });
-    }
+    const { tipo: tipoFactura, condId: condIvaReceptorId } = comprobanteParaReceptor(rec);
 
     const subtotalCalc = sumItemsBruto(allItems);
     let factor = 1;
@@ -1553,9 +1579,9 @@ app.post("/facturar", async (req, res) => {
       // ── Obtener número y emitir con retry ante error 10016 / 400 ──
       let nro, result;
       for (let intento = 0; intento <= 2; intento++) {
-        nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+        nro = (await afip.ElectronicBilling.getLastVoucher(pv, tipoFactura)) + 1;
         const voucherData = {
-          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+          CantReg: 1, PtoVta: pv, CbteTipo: tipoFactura, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
           CbteDesde: nro, CbteHasta: nro, CbteFch: cbteFch,
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
@@ -1586,7 +1612,7 @@ app.post("/facturar", async (req, res) => {
         fecha,
         cuit: CUIT_DISTRIBUIDORA,
         ptoVta: pv,
-        tipoCmp: CBTE_TIPO_REAL,
+        tipoCmp: tipoFactura,
         nroCmp: nro,
         importe: impTotal,
         moneda: "PES",
@@ -1626,22 +1652,25 @@ app.post("/facturar", async (req, res) => {
         subtotalBruto: subBrutoParte,
         descuentoPct: pctParte,
         descuentoImporte: descParte,
-        totalFinal: impTotal
+        totalFinal: impTotal,
+        cbteTipo: tipoFactura
       });
 
       // ── PDF: envuelto en try/catch para que un fallo de límite de plan
       //    no impida guardar la factura en DB (ya tiene CAE válido de AFIP)
+      const nombrePdf = `FA${infoTipoCbte(tipoFactura).letra}_${pad(pv, 5)}-${pad(nro, 8)}`;
       let pdfBuffer = null;
       let pdfPublicUrl = "";
       try {
-        pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-        pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-        console.log(`✅ [PDF] Generado y guardado: FA_${pad(pv, 5)}-${pad(nro, 8)} (${pdfBuffer.length} bytes)`);
+        pdfBuffer = await crearPdfLocal(htmlPDF, nombrePdf);
+        pdfPublicUrl = await savePublicPdf(pdfBuffer, nombrePdf);
+        console.log(`✅ [PDF] Generado y guardado: ${nombrePdf} (${pdfBuffer.length} bytes)`);
       } catch (pdfErr) {
         console.warn(`⚠️ [PDF] Falló generación local (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
       const comprobante = await guardarFacturaEnDB({
+        cbteTipo: tipoFactura,
         cuitCliente,
         rec,
         nro,
@@ -1668,7 +1697,7 @@ app.post("/facturar", async (req, res) => {
 
       if (pdfBuffer?.length) {
         mailAttachments.push({
-          filename: `FA_${pad(pv, 5)}-${pad(nro, 8)}.pdf`,
+          filename: `${nombrePdf}.pdf`,
           content: pdfBuffer,
           contentType: "application/pdf"
         });
@@ -1832,8 +1861,8 @@ app.post("/regenerar-pdf", async (req, res) => {
       refFechaTransf: f.fecha_transferencia_banco ? String(f.fecha_transferencia_banco).split("-").reverse().join("/") : ""
     });
 
-    const pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-    const pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+    const pdfBuffer = await crearPdfLocal(htmlPDF, `FA${infoTipoCbte(tipoRow).letra}_${pad(pv, 5)}-${pad(nro, 8)}`);
+    const pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA${infoTipoCbte(tipoRow).letra}_${pad(pv, 5)}-${pad(nro, 8)}`);
     console.log(`✅ [regenerar-pdf] PDF generado: ${pdfBuffer.length} bytes`);
 
     // Actualizar pdf_url en Supabase
@@ -2283,6 +2312,7 @@ process.on("uncaughtException", (err) => { console.error("❌ uncaughtException:
 const DB_FACTURAS = path.join(process.cwd(), "facturas_db.jsonl");
 
 async function guardarFacturaEnDB({
+  cbteTipo = CBTE_TIPO_REAL,
   cuitCliente,
   rec,
   nro,
@@ -2302,8 +2332,8 @@ async function guardarFacturaEnDB({
     fecha,
     anio: Number(String(fecha).split("-")[0]),
     mes: Number(String(fecha).split("-")[1]),
-    comprobante: buildComprobanteLabelByTipo(CBTE_TIPO_REAL, pv, nro),
-    cbte_tipo: CBTE_TIPO_REAL,
+    comprobante: buildComprobanteLabelByTipo(cbteTipo, pv, nro),
+    cbte_tipo: Number(cbteTipo),
     nro_factura: nro,
     punto_venta: pv,
     cae: String(cae),
@@ -2855,6 +2885,7 @@ const NC_TIPO_MAP = {
 function inferCbteTipoFromComprobante(comp = "") {
   const s = String(comp || "").toUpperCase().replace(/^FA-/, "");
   if (s.startsWith("NC-M")) return 53;
+  if (s.startsWith("NC-B")) return 8;
   if (s.startsWith("NC-")) return 3;
   if (s.startsWith("A-")) return 1;
   if (s.startsWith("M-")) return 51;
@@ -3230,9 +3261,9 @@ app.post("/anular-comprobante", async (req, res) => {
     const cbteTipoOriginal = Number(original.cbteTipo || CBTE_TIPO_REAL);
     const cbteTipoNC = inferNcTipoFromOriginal(cbteTipoOriginal);
 
-    // La NC no se bloquea por padrón (anula algo ya emitido): si la condición no es RI/monotributo, va RI
+    // La NC no se bloquea por padrón (anula algo ya emitido): sólo se ajusta la condición a la clase
     const recNC = await getReceptorDesdePadron(original.cuitCliente);
-    const condIvaNC = CONDICIONES_VALIDAS_CLASE_A.has(Number(recNC.condicionIvaId)) ? Number(recNC.condicionIvaId) : 1;
+    const condIvaNC = condicionIvaParaNC(recNC, cbteTipoNC);
 
     console.log(`🔍 [NC] Buscando PV para NC tipo ${cbteTipoNC} (original tipo ${cbteTipoOriginal})...`);
     const pvNc = await getPtoVentaSeguro();
@@ -4411,7 +4442,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         .from("facturas")
         .select("fecha")
         .eq("punto_venta", pv)
-        .eq("cbte_tipo", CBTE_TIPO_REAL)
+        .in("cbte_tipo", [CBTE_TIPO_REAL, CBTE_TIPO_B])
         .gt("total", 0)
         .order("nro_factura", { ascending: false })
         .limit(1);
@@ -4553,7 +4584,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       const impNeto  = round2(impTotal / 1.21);
       const impIVA   = round2(impTotal - impNeto);
       const rec      = await getReceptorDesdePadron(cuitCliente);
-      const condIvaReceptorId = condicionIvaReceptorParaClaseA(rec, cuitCliente);
+      const { tipo: tipoFactura, condId: condIvaReceptorId } = comprobanteParaReceptor(rec);
 
       // Registrar intención ANTES de llamar a AFIP: si createVoucher OK pero Supabase falla,
       // el registro queda en 'afip_ok' y el dedup lo detecta en la próxima corrida.
@@ -4569,7 +4600,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
               anio: anioT || new Date().getFullYear(),
               total: round2(monto * 1.21),
               estado: "iniciado",
-              cbte_tipo: CBTE_TIPO_REAL
+              cbte_tipo: tipoFactura
             })
             .select("id").single();
           if (ins) _pendienteId = ins.id;
@@ -4581,9 +4612,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       let nro, afipResult;
       let fechaFactEfectiva = fechaFact;
       for (let intento = 0; intento <= 2; intento++) {
-        nro = (await afip.ElectronicBilling.getLastVoucher(pv, CBTE_TIPO_REAL)) + 1;
+        nro = (await afip.ElectronicBilling.getLastVoucher(pv, tipoFactura)) + 1;
         const vd = {
-          CantReg: 1, PtoVta: pv, CbteTipo: CBTE_TIPO_REAL, Concepto: 1,
+          CantReg: 1, PtoVta: pv, CbteTipo: tipoFactura, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
           CbteDesde: nro, CbteHasta: nro, CbteFch: yyyymmdd(fechaFactEfectiva),
           ImpTotal: impTotal, ImpTotConc: 0, ImpNeto: impNeto,
@@ -4622,7 +4653,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
 
       const qrPayload = {
         ver: 1, fecha: fechaFact, cuit: CUIT_DISTRIBUIDORA, ptoVta: pv,
-        tipoCmp: CBTE_TIPO_REAL, nroCmp: nro, importe: impTotal,
+        tipoCmp: tipoFactura, nroCmp: nro, importe: impTotal,
         moneda: "PES", ctz: 1, tipoDocRec: 80, nroDocRec: Number(cuitCliente),
         tipoCodAut: "E", codAut: Number(afipResult.CAE)
       };
@@ -4644,22 +4675,23 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
         cae: afipResult.CAE, caeVtoISO: afipResult.CAEFchVto,
         condicionVenta, qrDataUrl, isPreview: false,
         refBanco: String(t.referencia || ""),
-        refFechaTransf: fechaTransf.split("-").reverse().join("/")
+        refFechaTransf: fechaTransf.split("-").reverse().join("/"),
+        cbteTipo: tipoFactura
       });
 
       let pdfPublicUrl = "";
       try {
-        const pdfBuffer = await crearPdfLocal(htmlPDF, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
-        pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA_${pad(pv, 5)}-${pad(nro, 8)}`);
+        const pdfBuffer = await crearPdfLocal(htmlPDF, `FA${infoTipoCbte(tipoFactura).letra}_${pad(pv, 5)}-${pad(nro, 8)}`);
+        pdfPublicUrl = await savePublicPdf(pdfBuffer, `FA${infoTipoCbte(tipoFactura).letra}_${pad(pv, 5)}-${pad(nro, 8)}`);
         console.log(`✅ [PDF] Extracto ${pad(pv,5)}-${pad(nro,8)}: ${pdfBuffer.length} bytes`);
       } catch (pdfErr) {
         console.warn(`⚠️ [PDF] Extracto PDF falló (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
-      const comprobante = labelExtracto(CBTE_TIPO_REAL, pv, nro);
+      const comprobante = labelExtracto(tipoFactura, pv, nro);
 
       await guardarComprobanteGeneralEnDB({
-        comprobante, cbteTipo: CBTE_TIPO_REAL,
+        comprobante, cbteTipo: tipoFactura,
         cuitCliente, nombreCliente: rec.nombre, domicilio: rec.domicilioAfip || "",
         nro, pv, cae: afipResult.CAE, impTotal,
         pdfPublicUrl, condicionVenta: `${condicionVenta} · EXTRACTO`,
