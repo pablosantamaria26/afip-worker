@@ -24,20 +24,11 @@ const pdfParseModule = require("pdf-parse");
 const pdfParse = pdfParseModule?.default || pdfParseModule;
 const XLSX     = require("xlsx");
 const ExcelJS  = require("exceljs");
-const htmlPdfNode = require("html-pdf-node");
+const { renderComprobanteHtml, generarPdf, nombreArchivoComprobante, fechaAR } = require("./lib/pdf-comprobante");
 
-// ── Generador de PDF local (sin afipsdk.com, sin límites de plan) ──
+// ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
-  const buf = await htmlPdfNode.generatePdf(
-    { content: html },
-    {
-      format: "A4",
-      printBackground: true,
-      margin: { top: "9mm", right: "9mm", bottom: "9mm", left: "9mm" },
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-    }
-  );
-  return buf; // Buffer listo para guardar/adjuntar
+  return generarPdf(html);
 }
 
 // ================================================================
@@ -833,160 +824,65 @@ const LOGO_DATA_URL = logoPathToDataUrl(LOGO_PATH);
 // ============================
 // HTML FACTURA
 // ============================
+// Datos del emisor que van en todos los comprobantes
+function datosEmisorPdf() {
+  return {
+    nombreVisible: EMISOR.nombreVisible,
+    razonSocial: EMISOR.razonSocial,
+    domicilio: EMISOR.domicilio,
+    condicionIVA: EMISOR.condicionIVA,
+    cuit: String(CUIT_DISTRIBUIDORA || ""),
+    iibb: String(CUIT_DISTRIBUIDORA || ""),
+    inicioActividades: "01/01/2020",
+  };
+}
+
+// Arma el modelo del comprobante y delega el diseño en lib/pdf-comprobante.js.
+// Los importes llegan ya calculados (los mismos que se informan a ARCA).
 function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total, cae, caeVtoISO, condicionVenta, qrDataUrl, isPreview = false, notaFactura = "", refBanco = "", refFechaTransf = "", subtotalBruto = 0, descuentoPct = 0, descuentoImporte = 0, totalFinal = 0, cbteTipo = CBTE_TIPO_REAL }) {
-  const pvStr = pad(pv, 5), nroStr = pad(nro, 8);
   const tipoInfo = infoTipoCbte(cbteTipo);
   const condIdRec = Number(receptor?.condicionIvaId || CONDICION_IVA_ID_POR_TXT[receptor?.condicionIVA] || 0);
-  const leyendas = leyendasComprobante(cbteTipo, condIdRec);
-  const fechaAR = fechaISO.split("-").reverse().join("/");
-  const caeVtoAR = caeVtoISO ? String(caeVtoISO).split("-").reverse().join("/") : "VISTA PREVIA";
-  const caeText = cae || "VISTA PREVIA";
-  // Clase B: el IVA no se discrimina; precios con IVA incluido (RG 1415)
-  const esB = tipoInfo.letra === "B";
-  const td = `padding:10px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:12px;`;
-  const rows = items.map((it, i) => `
-    <tr style="background-color: ${i % 2 === 0 ? "#ffffff" : "#f8fafc"}; page-break-inside: avoid;">
-      <td style="${td}">${safeText(it.descripcion)}</td>
-      <td class="r" style="${td}">${it.cantidad}</td>
-      ${esB ? `
-      <td class="r" style="${td}">$ ${formatMoneyAR(it.precioConIva)}</td>` : `
-      <td class="r" style="${td}">$ ${formatMoneyAR(it.precioNeto)}</td>
-      <td class="r" style="${td}">$ ${formatMoneyAR(it.subtotalNeto)}</td>
-      <td class="r" style="${td}">21%</td>`}
-      <td class="r" style="${td} font-weight:bold; color:#0f172a;">$ ${formatMoneyAR(it.subtotalConIva)}</td>
-    </tr>`).join("");
-  const thead = esB
-    ? `<th>Producto / Servicio</th><th class="r" style="width:50px;">Cant</th><th class="r" style="width:110px;">Precio Unit.</th><th class="r" style="width:110px;">Subtotal</th>`
-    : `<th>Producto / Servicio</th><th class="r" style="width:50px;">Cant</th>
-      <th class="r" style="width:90px;">Precio Unit.</th><th class="r" style="width:90px;">Subtotal Neto</th>
-      <th class="r" style="width:50px;">Alic. IVA</th><th class="r" style="width:100px;">Subtotal c/IVA</th>`;
-  const nCols = esB ? 4 : 6;
-  const totalesHtml = esB
-    ? `<div class="total-row"><span>Subtotal:</span><strong>$ ${formatMoneyAR(total)}</strong></div>
-      <div class="total-row"><span>Importe Otros Tributos:</span><strong>$ 0,00</strong></div>
-      <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>
-      <div class="transparencia">
-        <div class="transparencia-tit">Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)</div>
-        <div class="total-row"><span>IVA Contenido:</span><strong>$ ${formatMoneyAR(iva)}</strong></div>
-        <div class="total-row" style="margin-bottom:0;"><span>Otros Impuestos Nacionales Indirectos:</span><strong>$ 0,00</strong></div>
-      </div>`
-    : `<div class="total-row"><span>Importe Neto Gravado:</span><strong>$ ${formatMoneyAR(neto)}</strong></div>
-      <div class="total-row"><span>IVA 21%:</span><strong>$ ${formatMoneyAR(iva)}</strong></div>
-      <div class="total-row"><span>Importe Otros Tributos:</span><strong>$ 0,00</strong></div>
-      <div class="total-row final"><span>IMPORTE TOTAL:</span><span>$ ${formatMoneyAR(total)}</span></div>`;
-  const pageStyle = isPreview ? `width: 100%; padding: 10px; zoom: 0.8;` : `width: 820px; margin: 0 auto; padding: 30px;`;
+
   const domRemito = String(receptor?.domicilioRemito || "").trim();
   const domAfip = String(receptor?.domicilioAfip || "").trim();
   const normAddr = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.,;]+/g, "").trim();
-  const domMain = domRemito || domAfip || "Domicilio no informado";
-  const showBoth = domRemito && domAfip && normAddr(domRemito) !== normAddr(domAfip);
-  const domicilioHtml = showBoth
-    ? `<div class="muted">Domicilio (Entrega/Remito): <strong>${safeText(domRemito)}</strong></div><div class="muted">Domicilio Fiscal (AFIP): <strong>${safeText(domAfip)}</strong></div>`
-    : `<div class="muted">Domicilio: <strong>${safeText(domMain)}</strong></div>`;
-  const showDesc = Number(descuentoImporte || 0) > 0 && Number(subtotalBruto || 0) > 0;
+  const domicilios = domRemito && domAfip && normAddr(domRemito) !== normAddr(domAfip)
+    ? [{ etiqueta: "Domicilio (entrega / remito)", valor: domRemito }, { etiqueta: "Domicilio fiscal (ARCA)", valor: domAfip }]
+    : [{ etiqueta: "Domicilio", valor: domRemito || domAfip || "Domicilio no informado" }];
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Factura ${tipoInfo.letra} ${pvStr}-${nroStr}</title>
-<style>
-* { box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-body { margin: 0; color: #0f172a; background: #ffffff; }
-.page { ${pageStyle} }
-.top-accent { height: 5px; background: linear-gradient(90deg, #1e293b 0%, #334155 65%, #C97A3A 100%); border-radius: 3px; margin-bottom: 22px; }
-.header-box { display: flex; justify-content: space-between; border: 2px solid #1e293b; border-radius: 8px; position: relative; margin-bottom: 18px; }
-.header-left { flex: 1; padding: 22px 24px; border-right: 1px solid #e2e8f0; }
-.header-right { flex: 1; padding: 22px 24px; position: relative; text-align: right; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); }
-.letter-box { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); width: 58px; height: 64px; border: 2px solid #1e293b; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; border-top: none; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
-.letter { font-size: 34px; font-weight: 900; color: #1e293b; margin: 0; line-height: 1; }
-.letter-cod { font-size: 9px; font-weight: 700; color: #1e293b; margin-top: 3px; letter-spacing: 0.3px; }
-.title { font-weight: 900; font-size: 26px; color: #1e293b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-.muted { color: #475569; font-size: 11px; margin: 4px 0; line-height: 1.5; }
-.muted strong { color: #1e293b; }
-.client-box { border: 1px solid #cbd5e1; border-top: 3px solid #1e293b; border-radius: 8px; padding: 16px 20px 14px; margin-bottom: 18px; background: #ffffff; page-break-inside: avoid; position: relative; }
-.client-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: #94a3b8; font-weight: 700; margin-bottom: 3px; }
-.nota-fraccion { position: absolute; top: 10px; right: 15px; background: #fef08a; color: #a16207; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 4px; white-space: pre-line; text-align: right; }
-.ref-transf-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #64748b; font-size: 10.5px; color: #334155; }
-.ref-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; white-space: nowrap; }
-.ref-sep { width: 1px; background: #cbd5e1; align-self: stretch; margin: 0 2px; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
-th { background: #1e293b; color: #ffffff; padding: 13px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; }
-thead th:first-child { border-top-left-radius: 7px; }
-thead th:last-child { border-top-right-radius: 7px; }
-thead { display: table-header-group; }
-th.r { text-align: right; }
-.r { text-align: right; }
-tbody tr:nth-child(even) td { background: #f8fafc; }
-.footer-grid { display: flex; gap: 20px; margin-top: 22px; page-break-inside: avoid; }
-.totals-box { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; }
-.total-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 9px; color: #475569; }
-.total-row.final { font-size: 16px; font-weight: 900; color: #0f172a; margin-top: 12px; padding-top: 12px; border-top: 2px solid #e2e8f0; }
-.arca-box { flex: 1; display: flex; align-items: center; justify-content: space-between; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; background: #f8fafc; }
-.arca-info { font-size: 11px; color: #334155; line-height: 1.8; }
-.qr { width: 110px; height: 110px; }
-.transparencia { margin-top: 14px; padding: 10px 12px; border: 1px dashed #94a3b8; border-radius: 6px; background: #f8fafc; }
-.transparencia-tit { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; margin-bottom: 7px; }
-.leyenda { text-align: center; font-size: 10px; font-weight: bold; color: #64748b; margin-top: 22px; border-top: 1px dashed #cbd5e1; padding-top: 10px; page-break-inside: avoid; }
-.page-footer { text-align: center; margin-top: 28px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-size: 9px; color: #94a3b8; letter-spacing: 0.4px; }
-</style>
-</head><body><div class="page">
-  <div class="top-accent"></div>
-  ${isPreview ? `<div style="background:#fef08a; padding:10px; text-align:center; font-weight:bold; color:#a16207; margin-bottom:15px; border-radius:8px;">MODO VISTA PREVIA (AÚN NO AUTORIZADO POR ARCA)</div>` : ""}
-  <div class="header-box">
-    <div class="letter-box"><div class="letter">${tipoInfo.letra}</div><div class="letter-cod">COD. ${tipoInfo.cod}</div></div>
-    <div class="header-left">
-      ${LOGO_DATA_URL ? `<div style="display:flex; align-items:center; gap:14px; margin-bottom:10px;"><img src="${LOGO_DATA_URL}" alt="Logo" style="height:64px; width:auto; object-fit:contain; display:block;" /><div style="border-left:1px solid #e2e8f0; height:42px;"></div></div>` : ""}
-      <div class="title" style="text-align: left; font-size: 22px;">${safeText(EMISOR.nombreVisible)}</div>
-      <div class="muted">Razón Social: <strong>${safeText(EMISOR.razonSocial)}</strong></div>
-      <div class="muted">Domicilio Comercial: <strong>${safeText(EMISOR.domicilio)}</strong></div>
-      <div class="muted">Condición frente al IVA: <strong>${safeText(EMISOR.condicionIVA)}</strong></div>
-    </div>
-    <div class="header-right">
-      <div class="title">FACTURA</div><div style="height: 10px;"></div>
-      <div class="muted">Punto de Venta: <strong>${pvStr}</strong> &nbsp;&nbsp; Comp. Nro: <strong>${nroStr}</strong></div>
-      <div class="muted">Fecha de Emisión: <strong>${fechaAR}</strong></div>
-      <div class="muted">CUIT: <strong>${safeText(CUIT_DISTRIBUIDORA)}</strong></div>
-      <div class="muted">Ingresos Brutos: <strong>${safeText(CUIT_DISTRIBUIDORA)}</strong></div>
-      <div class="muted">Inicio de Actividades: <strong>01/01/2020</strong></div>
-    </div>
-  </div>
-  <div class="client-box">
-    ${notaFactura ? `<div class="nota-fraccion">${safeText(notaFactura)}</div>` : ""}
-    <table style="border: none; margin: 0;"><tr style="background: transparent;">
-      <td style="padding: 0; width: 60%; vertical-align: top;">
-        <div class="muted">CUIT: <strong>${safeText(receptor.cuit)}</strong></div>
-        <div class="muted">Condición frente al IVA: <strong>${safeText(receptor.condicionIVA)}</strong></div>
-        <div class="muted">Condición de Venta: <strong>${safeText(condicionVenta)}</strong></div>
-      </td>
-      <td style="padding: 0; width: 40%; vertical-align: top;">
-        <div class="muted">Apellido y Nombre / Razón Social: <strong>${safeText(receptor.nombre)}</strong></div>
-        ${domicilioHtml}
-      </td>
-    </tr></table>
-    ${(refBanco || refFechaTransf) ? `<div class="ref-transf-row"><span class="ref-label">Transf. bancaria</span><span class="ref-sep"></span>${refBanco ? `<span>Ref: <strong>${safeText(refBanco)}</strong></span>` : ""}${refBanco && refFechaTransf ? `<span style="color:#cbd5e1;margin:0 2px;">·</span>` : ""}${refFechaTransf ? `<span>Fecha: <strong>${safeText(refFechaTransf)}</strong></span>` : ""}</div>` : ""}
-  </div>
-  <table>
-    <thead><tr>${thead}</tr></thead>
-    <tbody>${rows || `<tr><td colspan="${nCols}" style="padding:20px; text-align:center;">Sin ítems detallados</td></tr>`}</tbody>
-  </table>
-  <div class="footer-grid">
-    <div class="arca-box">
-      ${qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="QR Code ARCA" />` : '<div class="qr" style="border:1px dashed #ccc; display:flex; align-items:center; justify-content:center; color:#999; font-size:10px;">(QR ARCA)</div>'}
-      <div class="arca-info" style="text-align: right;">
-        <img src="https://www.afip.gob.ar/images/afip.png" alt="ARCA" style="height:25px; margin-bottom:10px; opacity:0.8;" onerror="this.style.display='none'"><br>
-        Comprobante Autorizado por ARCA<br><br>
-        <strong>CAE Nro:</strong> ${safeText(caeText)}<br>
-        <strong>Fecha Vto. CAE:</strong> ${safeText(caeVtoAR)}
-      </div>
-    </div>
-    <div class="totals-box">
-      ${showDesc ? `
-        <div class="total-row"><span>Subtotal (Remito) c/IVA:</span><strong>$ ${formatMoneyAR(subtotalBruto)}</strong></div>
-        <div class="total-row"><span>Descuento (${formatMoneyAR(descuentoPct)}%):</span><strong>-$ ${formatMoneyAR(descuentoImporte)}</strong></div>
-        <div class="total-row"><span>Total Remito c/desc:</span><strong>$ ${formatMoneyAR(totalFinal || total)}</strong></div>
-        <div style="height:10px;"></div>` : ""}
-      ${totalesHtml}
-    </div>
-  </div>
-  ${leyendas.map(l => `<div class="leyenda">${safeText(l)}</div>`).join("")}
-</div></body></html>`;
+  const conDescuento = Number(descuentoImporte || 0) > 0 && Number(subtotalBruto || 0) > 0;
+
+  return renderComprobanteHtml({
+    preview: !!isPreview,
+    tipo: { letra: tipoInfo.letra, cod: tipoInfo.cod, nombre: tipoInfo.nombre, esB: tipoInfo.letra === "B", esNC: false },
+    emisor: datosEmisorPdf(),
+    comprobante: {
+      pv: pad(pv, 5), nro: pad(nro, 8),
+      fecha: fechaAR(fechaISO),
+      cae: cae || (isPreview ? "VISTA PREVIA" : ""),
+      caeVto: caeVtoISO ? fechaAR(caeVtoISO) : (isPreview ? "VISTA PREVIA" : ""),
+      qr: qrDataUrl || "",
+    },
+    receptor: {
+      cuit: receptor?.cuit || "",
+      nombre: receptor?.nombre || "",
+      condicionIVA: receptor?.condicionIVA || "",
+      condicionVenta: condicionVenta || "",
+      domicilios,
+    },
+    referencia: (refBanco || refFechaTransf) ? { ref: refBanco, fecha: refFechaTransf } : null,
+    notaParte: notaFactura ? String(notaFactura).split("\n").slice(0, 2).join(" · ") : "",
+    items: (items || []).map((it) => ({
+      descripcion: it.descripcion, cantidad: it.cantidad,
+      precioNeto: it.precioNeto, subtotalNeto: it.subtotalNeto,
+      precioConIva: it.precioConIva, subtotalConIva: it.subtotalConIva,
+    })),
+    totales: {
+      neto, iva, total,
+      descuento: conDescuento ? { bruto: subtotalBruto, pct: descuentoPct, importe: descuentoImporte, totalFinal: totalFinal || total } : null,
+    },
+    leyendas: leyendasComprobante(cbteTipo, condIdRec),
+  });
 }
 
 // ============================
@@ -1117,7 +1013,7 @@ app.get("/ver-factura/:comprobante", async (req, res) => {
     };
     const qrDataUrl = await QRCode.toDataURL(
       `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-      { margin: 0, width: 170 }
+      { margin: 2, width: 360 }
     );
 
     const rec = await getReceptorDesdePadron(f.cuit_cliente);
@@ -1650,7 +1546,7 @@ app.post("/facturar", async (req, res) => {
 
       const qrDataUrl = await QRCode.toDataURL(
         `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-        { margin: 0, width: 170 }
+        { margin: 2, width: 360 }
       );
 
       const htmlPDF = buildFacturaHtml({
@@ -1722,7 +1618,7 @@ app.post("/facturar", async (req, res) => {
 
       if (pdfBuffer?.length) {
         mailAttachments.push({
-          filename: `${nombrePdf}.pdf`,
+          filename: nombreArchivoComprobante(comprobante, rec.nombre),
           content: pdfBuffer,
           contentType: "application/pdf"
         });
@@ -1867,7 +1763,7 @@ app.post("/regenerar-pdf", async (req, res) => {
     };
     const qrDataUrl = await QRCode.toDataURL(
       `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-      { margin: 0, width: 170 }
+      { margin: 2, width: 360 }
     );
 
     // Datos del receptor (padron o fallback desde Supabase)
@@ -1904,7 +1800,7 @@ app.post("/regenerar-pdf", async (req, res) => {
           reply_to: GMAIL_USER,
           subject: `Factura ${f.comprobante} — ${rec.nombre}`,
           html: `<p style="font-family:sans-serif">Adjunto el PDF de la factura <strong>${f.comprobante}</strong> por $${formatMoneyAR(impTotal)}.</p>`,
-          attachments: [{ filename: `${f.comprobante}.pdf`, content: pdfBuffer.toString("base64") }]
+          attachments: [{ filename: nombreArchivoComprobante(f.comprobante, rec.nombre), content: pdfBuffer.toString("base64") }]
         });
         console.log(`✅ [regenerar-pdf] Email enviado a ${emailDest}`);
       } catch (mailErr) {
@@ -2691,7 +2587,7 @@ app.post("/reenviar-email", async (req, res) => {
       </div>`;
 
     const attachments = pdfBuffer ? [{
-      filename: `${comprobante.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`,
+      filename: nombreArchivoComprobante(comprobante, nombre),
       content: Buffer.isBuffer(pdfBuffer) ? pdfBuffer.toString("base64") : pdfBuffer
     }] : [];
 
@@ -3134,100 +3030,32 @@ function buildNotaCreditoHtml({
   motivo,
   cbteTipo = NC_TIPO_MAP[CBTE_TIPO_REAL]
 }) {
-  const pvStr = pad(pv, 5);
-  const nroStr = pad(nro, 8);
   const tipoInfo = infoTipoCbte(cbteTipo);
-  const leyendas = leyendasComprobante(cbteTipo, CONDICION_IVA_ID_POR_TXT[receptor?.condicionIVA]);
-  const fechaAR = String(fechaISO || "").split("-").reverse().join("/");
-  const caeVtoAR = String(caeVtoISO || "").split("-").reverse().join("/");
-  const domMain = String(receptor?.domicilioAfip || receptor?.domicilioRemito || "Domicilio no informado");
-
-  return `<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8"/>
-  <title>Nota de Crédito ${pvStr}-${nroStr}</title>
-  <style>
-    * { box-sizing:border-box; font-family: Arial, Helvetica, sans-serif; }
-    body { margin:0; color:#0f172a; background:#fff; }
-    .page { width:820px; margin:0 auto; padding:30px; }
-    .box { border:2px solid #1e293b; border-radius:8px; overflow:hidden; margin-bottom:18px; }
-    .head { display:flex; }
-    .col { flex:1; padding:18px 20px; }
-    .col + .col { border-left:1px solid #e2e8f0; text-align:right; }
-    .title { font-size:26px; font-weight:900; color:#1e293b; margin-bottom:6px; }
-    .muted { font-size:11px; color:#475569; margin:3px 0; }
-    .strong { color:#0f172a; font-weight:800; }
-    .card { border:1px solid #cbd5e1; border-radius:8px; padding:14px; background:#f8fafc; margin-bottom:16px; }
-    .card-title { font-size:12px; font-weight:900; text-transform:uppercase; color:#1e293b; margin-bottom:8px; }
-    .motivo { background:#fef3c7; border:1px solid #f59e0b; color:#92400e; border-radius:8px; padding:12px; font-size:13px; font-weight:700; margin-top:10px; }
-    .totals { display:flex; gap:18px; margin-top:18px; }
-    .tot-box { flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:15px; }
-    .row { display:flex; justify-content:space-between; margin:8px 0; font-size:13px; }
-    .row.final { border-top:2px solid #e2e8f0; padding-top:10px; margin-top:12px; font-size:18px; font-weight:900; }
-    .arca { flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:15px; background:#f8fafc; display:flex; align-items:center; justify-content:space-between; }
-    .qr { width:110px; height:110px; }
-    .footer { text-align:center; font-size:10px; font-weight:700; color:#64748b; margin-top:18px; border-top:1px dashed #cbd5e1; padding-top:10px; }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="box">
-      <div class="head">
-        <div class="col">
-          <div class="title">NOTA DE CRÉDITO</div>
-          <div class="muted"><span class="strong">${safeText(emisor.nombreVisible)}</span></div>
-          <div class="muted">Razón Social: <span class="strong">${safeText(emisor.razonSocial)}</span></div>
-          <div class="muted">Domicilio Comercial: <span class="strong">${safeText(emisor.domicilio)}</span></div>
-          <div class="muted">Condición frente al IVA: <span class="strong">${safeText(emisor.condicionIVA)}</span></div>
-        </div>
-        <div class="col">
-          <div class="title">${tipoInfo.letra} <span style="font-size:11px; font-weight:700;">COD. ${tipoInfo.cod}</span></div>
-          <div class="muted">Punto de Venta: <span class="strong">${pvStr}</span> &nbsp;&nbsp; Comp. Nro: <span class="strong">${nroStr}</span></div>
-          <div class="muted">Fecha de Emisión: <span class="strong">${safeText(fechaAR)}</span></div>
-          <div class="muted">CUIT Emisor: <span class="strong">${safeText(CUIT_DISTRIBUIDORA)}</span></div>
-          <div class="muted">Ingresos Brutos: <span class="strong">${safeText(CUIT_DISTRIBUIDORA)}</span></div>
-          <div class="muted">Inicio de Actividades: <span class="strong">01/01/2020</span></div>
-          <div class="muted">CAE: <span class="strong">${safeText(cae)}</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Cliente</div>
-      <div class="muted">CUIT: <span class="strong">${safeText(receptor.cuit)}</span></div>
-      <div class="muted">Razón Social: <span class="strong">${safeText(receptor.nombre)}</span></div>
-      <div class="muted">Domicilio: <span class="strong">${safeText(domMain)}</span></div>
-      <div class="muted">Condición frente al IVA: <span class="strong">${safeText(receptor.condicionIVA || "IVA Responsable Inscripto")}</span></div>
-
-      <div class="motivo">
-        Anulación mediante Nota de Crédito asociada.<br/>
-        Comprobante original: <strong>${safeText(originalComprobante)}</strong><br/>
-        CAE original: <strong>${safeText(originalCae || "-")}</strong><br/>
-        Motivo: <strong>${safeText(motivo || "Anulación por error / duplicación")}</strong>
-      </div>
-    </div>
-
-    <div class="totals">
-      <div class="arca">
-        ${qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="QR ARCA" />` : `<div class="qr"></div>`}
-        <div style="text-align:right; font-size:11px; color:#334155; line-height:1.6;">
-          Comprobante Autorizado por ARCA<br><br>
-          <strong>CAE Nro:</strong> ${safeText(cae)}<br>
-          <strong>Fecha Vto. CAE:</strong> ${safeText(caeVtoAR)}
-        </div>
-      </div>
-      <div class="tot-box">
-        <div class="row"><span>Importe Neto Gravado:</span><strong>$ ${formatMoneyAR(round2(Number(total || 0) / 1.21))}</strong></div>
-        <div class="row"><span>IVA 21%:</span><strong>$ ${formatMoneyAR(round2(Number(total || 0) - round2(Number(total || 0) / 1.21)))}</strong></div>
-        <div class="row final"><span>TOTAL NOTA DE CRÉDITO:</span><span>$ ${formatMoneyAR(total)}</span></div>
-      </div>
-    </div>
-
-    ${leyendas.map(l => `<div class="footer">${safeText(l)}</div>`).join("")}
-  </div>
-</body>
-</html>`;
+  const condIdRec = CONDICION_IVA_ID_POR_TXT[receptor?.condicionIVA];
+  // Mismos importes que se informan a ARCA en la NC (neto = total / 1,21)
+  const totalNum = Number(total || 0);
+  const neto = round2(totalNum / 1.21);
+  const iva = round2(totalNum - neto);
+  return renderComprobanteHtml({
+    preview: false,
+    tipo: { letra: tipoInfo.letra, cod: tipoInfo.cod, nombre: tipoInfo.nombre, esB: tipoInfo.letra === "B", esNC: true },
+    emisor: { ...datosEmisorPdf(), nombreVisible: emisor?.nombreVisible || EMISOR.nombreVisible },
+    comprobante: { pv: pad(pv, 5), nro: pad(nro, 8), fecha: fechaAR(fechaISO), cae: cae || "", caeVto: caeVtoISO ? fechaAR(caeVtoISO) : "", qr: qrDataUrl || "" },
+    receptor: {
+      cuit: receptor?.cuit || "",
+      nombre: receptor?.nombre || "",
+      condicionIVA: receptor?.condicionIVA || "",
+      condicionVenta: "Anulación mediante nota de crédito",
+      domicilios: [{ etiqueta: "Domicilio", valor: String(receptor?.domicilioAfip || receptor?.domicilioRemito || "Domicilio no informado") }],
+    },
+    asociado: { comprobante: originalComprobante || "", cae: originalCae || "", motivo: motivo || "Anulación por error / duplicación" },
+    items: [{
+      descripcion: `Anulación de ${originalComprobante || "comprobante"}`,
+      cantidad: 1, precioNeto: neto, subtotalNeto: neto, precioConIva: totalNum, subtotalConIva: totalNum,
+    }],
+    totales: { neto, iva, total: totalNum, descuento: null },
+    leyendas: leyendasComprobante(cbteTipo, condIdRec),
+  });
 }
 
 app.post("/anular-comprobante", async (req, res) => {
@@ -3410,7 +3238,7 @@ app.post("/anular-comprobante", async (req, res) => {
 
     const qrDataUrl = await QRCode.toDataURL(
       `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-      { margin: 0, width: 170 }
+      { margin: 2, width: 360 }
     );
 
     const htmlNC = buildNotaCreditoHtml({
@@ -3511,7 +3339,7 @@ app.post("/anular-comprobante", async (req, res) => {
           subject: subjectNC,
           html: mailHtmlNC,
           attachments: pdfBuffer?.length ? [{
-            filename: `NC_${ncComprobante}.pdf`,
+            filename: nombreArchivoComprobante(ncComprobante, original.nombreCliente),
             content: pdfBuffer.toString("base64")
           }] : []
         });
@@ -4639,7 +4467,7 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       };
       const qrDataUrl = await QRCode.toDataURL(
         `https://www.arca.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
-        { margin: 0, width: 170 }
+        { margin: 2, width: 360 }
       );
 
       const itemsCalc = items.map(it => ({
