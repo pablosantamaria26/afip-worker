@@ -566,3 +566,13 @@ Reversión: `git revert` del merge y push (las columnas nuevas en `facturas` pue
 - No se probó contra ARCA ni Render: la emisión real recién se verifica con la primera factura.
 - `afip_vouchers_pendientes` no tiene columna de remito: el cruce de «autorizó pero no guardó» es por CUIT + importe (±$2) en el mes, igual que el extracto.
 - Fecha del comprobante: hoy (los remitos pueden tener más de 5 días).
+
+## 14 · PDF más compacto: ~20 renglones por hoja (20/11/2026)
+
+**Pedido de Pablo:** la primera factura real desde la Caja (FA-A-00005-00000141, 21 renglones) salió en 4 hojas: 3 renglones en la primera y 7 en las siguientes. Quería unos 20 por hoja.
+
+**Causas:** (1) la columna «Producto» era angosta (≈44 mm con la columna de código) y cada nombre ocupaba 3 o 4 líneas, con renglones de 10 pt y 2,3 mm de relleno; (2) **el paginador medía con la fuente de reemplazo**: las fuentes propias (Source Sans / Barlow en base64) se cargan recién cuando algo las usa y los renglones viven en `<template>`, así que `document.fonts.ready` se resolvía antes de cargarlas; al imprimir, el texto era más angosto y cada hoja quedaba con un cuarto libre abajo (pasaba desde siempre).
+
+**Cambios en `lib/pdf-comprobante.js` (solo presentación):** se piden las cuatro fuentes con `document.fonts.load()` antes de paginar (con tope de 4 s); columnas A con código: 22 / producto / 11 / 22 / 24 / 11 / 25 mm (producto ≈ 73 mm), B: 22 / producto / 12 / 27 / 30; renglones 8,6 pt, relleno 1,15 × 1,8 mm, descripción siempre alineada a la izquierda (antes, con la columna de código, quedaba a la derecha); encabezado de la primera hoja, bloque de cliente, encabezado de continuación y bloque «continúa» más compactos. Nada fiscal cambia.
+
+**Medido con los 21 renglones reales de la 141:** 4 hojas (3/7/7/4) → 2 hojas (12/9). 40 renglones con nombres largos: 8 hojas → 3 (11/21/8). B sin código, 25 renglones: 3 → 2 (21/4). `scripts/probar-pdf.js` + `scripts/verificar-pdf.py`: TODO OK en los 20 casos (igual que antes del cambio). `scripts/probar-facturar-remito.js` 22/22.
