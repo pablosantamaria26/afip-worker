@@ -567,7 +567,7 @@ Reversión: `git revert` del merge y push (las columnas nuevas en `facturas` pue
 - `afip_vouchers_pendientes` no tiene columna de remito: el cruce de «autorizó pero no guardó» es por CUIT + importe (±$2) en el mes, igual que el extracto.
 - Fecha del comprobante: hoy (los remitos pueden tener más de 5 días).
 
-## 14 · PDF más compacto: ~20 renglones por hoja (20/11/2026)
+## 14. PDF más compacto: ~20 renglones por hoja — 20/11/2026
 
 **Pedido de Pablo:** la primera factura real desde la Caja (FA-A-00005-00000141, 21 renglones) salió en 4 hojas: 3 renglones en la primera y 7 en las siguientes. Quería unos 20 por hoja.
 
