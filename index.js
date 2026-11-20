@@ -2544,7 +2544,7 @@ app.get("/historial", async (req, res) => {
 
     let query = supabase
       .from("facturas")
-      .select("comprobante, cbte_tipo, nro_factura, punto_venta, cae, cuit_cliente, nombre_cliente, total, pdf_url, fecha, condicion_venta, email_to, email_status, email_error", { count: "exact" })
+      .select("comprobante, cbte_tipo, nro_factura, punto_venta, cae, cuit_cliente, nombre_cliente, total, pdf_url, fecha, condicion_venta, email_to, email_status, email_error, origen, remito_ref", { count: "exact" })
       .eq("mes",  mes)
       .eq("anio", anio)
       .order("nro_factura", { ascending: false })
@@ -2581,6 +2581,8 @@ app.get("/historial", async (req, res) => {
         fecha:         String(f.fecha || ""),
         condicionVenta: String(f.condicion_venta || ""),
         emailTo:       String(f.email_to || ""),
+        origen:        String(f.origen || ""),          // 19/11/2026: 'caja' cuando la emitió la Caja por remito
+        remito:        String(f.remito_ref || ""),
         anulado
       };
     });
