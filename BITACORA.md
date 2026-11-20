@@ -537,3 +537,32 @@ Autorizada por Pablo el 20/10/2026. Se publicaron el rediseño (sección 10), el
    - Si se revierte el backend, revertir también el frontend (la foto de remito usa `/leer-remito-foto`).
    - Revertir solo el frontend es seguro, porque el backend nuevo es compatible con la app vieja.
 4. El sitio de prueba y las etiquetas `pre-rediseno-2026-10` se conservan.
+
+---
+
+## 13. Facturar remitos desde la Caja de Queruclor — 19/11/2026 (rama `facturar-remito`, SIN publicar)
+
+### Qué es
+La Caja (donde se hacen los recibos de Queruclor) tiene en la ficha del cliente un botón **«Facturar en ARCA»**: elige un remito entregado y lo factura. La Caja **no** habla con ARCA: le pide la factura a este servidor, que hace exactamente lo mismo que `POST /facturar` (padrón → A/B → CAE con reintento 10016 → QR → PDF → `facturas` → email). Reglas acordadas con Pablo: un remito = una factura; se factura solo el remito cuyo botón se toca; precios finales con IVA incluido (el total del remito es el total de la factura); cantidad en cajas; **código de barras** de cada artículo; condición de venta «Cuenta Corriente»; sin email se emite igual (y la Caja ofrece mandar el PDF por WhatsApp); las notas de crédito se siguen haciendo desde la app de Facturación.
+
+### Qué cambió en el servidor
+- `facturarCore(body, extra)`: el cuerpo del manejador de `/facturar`, separado en una función que devuelve `{ status, json }`. `POST /facturar` la llama y responde igual que antes (mismos mensajes). `extra.onPaso` informa el avance; `extra.remitoRef` / `extra.origen` viajan al registro.
+- `lib/facturar-remito.js` (nuevo): `POST /facturar-remito` (devuelve un `jobId` al instante y emite en segundo plano), `GET /estado-facturacion/:jobId` (paso en curso: preparando → padron → cae → pdf → guardado → email → listo; estado persistido en Storage `jobs/facturar_*.json` al terminar; tras un reinicio dice «interrumpido»), `GET /factura-remito/:remito` y `GET /facturas-remitos?remitos=a,b,c`.
+- **Anti-duplicado por remito:** `facturas.remito_ref`. Se consulta al crear el trabajo y otra vez **dentro de facturarCore antes de pedir el CAE**; si ya hay factura se devuelve esa (`yaFacturado`). Un solo trabajo por remito a la vez (dos toques = mismo `jobId`). Si la consulta falla, se frena (nunca se emite «por las dudas»). Además, con `remitoRef` se registra la intención en `afip_vouchers_pendientes` (iniciado → afip_ok → completo) y, si hay un voucher `afip_ok` del mismo cliente e importe sin guardar, se responde 409 y se pide revisar el historial antes de reemitir.
+- Ítems con `codigo` (EAN): llega al PDF (columna «Código», **solo cuando algún ítem lo trae**: los PDF del extracto y de FacturacionML no cambian) y al campo `items` de `facturas`. `/debug/preview` también lo acepta.
+- `facturas`: columnas nuevas `remito_ref` y `origen` (`'caja'`), índice parcial por `remito_ref`. **Ya creadas en producción** (aditivo; `sql/2026-11-19-facturas-remito.sql`).
+- `APP_VERSION = "2026-11-FACTURAR-REMITO"`.
+
+### Pruebas (sin ARCA, sin red)
+`node scripts/probar-facturar-remito.js` → **22/22**: columna del PDF con y sin código (A y B); validaciones; trabajo y estados; segundo toque = mismo trabajo; `yaFacturado` sin emitir; consulta en lote; error de ARCA → estado error y reintento posible; sin email la factura sale igual; recuperación del estado desde Storage tras reinicio; 404 con indicación; al núcleo llegan «Cuenta Corriente», CUIT normalizado y el código. La Caja se probó aparte con un doble de este servidor (`Queruclor/prototipo/caja-facturar-navegador.js`, 29/29).
+
+### Para publicar (requiere tu aprobación: push a `main` = deploy en Render)
+1. `git merge facturar-remito` en `main` y push; esperar `/health` con `2026-11-FACTURAR-REMITO`.
+2. Recién después publicar la Caja (si la Caja sale antes, el botón avisa «el servidor no tiene /facturas-remitos» y no emite nada).
+3. Primera factura real: un remito que Pablo elija, con su OK; verificar historial, PDF (columna Código) y email.
+Reversión: `git revert` del merge y push (las columnas nuevas en `facturas` pueden quedar: nadie las usa).
+
+### Límites
+- No se probó contra ARCA ni Render: la emisión real recién se verifica con la primera factura.
+- `afip_vouchers_pendientes` no tiene columna de remito: el cruce de «autorizó pero no guardó» es por CUIT + importe (±$2) en el mes, igual que el extracto.
+- Fecha del comprobante: hoy (los remitos pueden tener más de 5 días).
