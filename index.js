@@ -25,6 +25,7 @@ const pdfParse = pdfParseModule?.default || pdfParseModule;
 const XLSX     = require("xlsx");
 const ExcelJS  = require("exceljs");
 const { renderComprobanteHtml, generarPdf, nombreArchivoComprobante, fechaAR } = require("./lib/pdf-comprobante");
+const { montarFacturarRemito } = require("./lib/facturar-remito");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -54,7 +55,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-10-REDISENO-PDF";
+const APP_VERSION = "2026-11-FACTURAR-REMITO";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -873,7 +874,7 @@ function buildFacturaHtml({ receptor, fechaISO, pv, nro, items, neto, iva, total
     referencia: (refBanco || refFechaTransf) ? { ref: refBanco, fecha: refFechaTransf } : null,
     notaParte: notaFactura ? String(notaFactura).split("\n").slice(0, 2).join(" · ") : "",
     items: (items || []).map((it) => ({
-      descripcion: it.descripcion, cantidad: it.cantidad,
+      descripcion: it.descripcion, cantidad: it.cantidad, codigo: it.codigo || "",
       precioNeto: it.precioNeto, subtotalNeto: it.subtotalNeto,
       precioConIva: it.precioConIva, subtotalConIva: it.subtotalConIva,
     })),
@@ -1103,7 +1104,7 @@ app.post("/debug/preview", async (req, res) => {
       const sub = subtotalConIva > 0 ? round2(subtotalConIva) : round2(cantidad * precioConIva);
       const unit = precioConIva > 0 ? round2(precioConIva) : (cantidad > 0 ? round2(sub / cantidad) : 0);
       if (!sub || !unit) return null;
-      return { cantidad, descripcion, precioConIva: unit, subtotalConIva: sub };
+      return { cantidad, descripcion, codigo: String(x.codigo || "").trim(), precioConIva: unit, subtotalConIva: sub };
     }).filter(Boolean);
 
     if (!allItems.length && (!cuitCliente || cuitCliente.length < 11)) return res.status(204).end();
@@ -1368,12 +1369,23 @@ async function enviarEmailFactura({ mailParts, mailAttachments, rec, cuitCliente
 // La factura se autoriza en AFIP, se envía el email, y LUEGO
 // se responde al frontend. Esto evita que Render mate el proceso.
 // ================================================================
-app.post("/facturar", async (req, res) => {
+/* ── Núcleo de la emisión manual / por remito (19/11/2026) ──────────────────────────────────────
+   Antes vivía dentro del manejador de POST /facturar. Se separó para que la Caja de Queruclor pueda facturar remitos por un
+   trabajo en segundo plano (lib/facturar-remito.js) reutilizando EXACTAMENTE la misma emisión: padrón → tipo A/B → CAE con
+   reintento 10016 → PDF → guardado → email. Devuelve { status, json } y POST /facturar lo responde tal cual.
+   extra.onPaso(nombre) informa el avance; extra.remitoRef / extra.origen viajan al registro de la factura.
+   Con remitoRef además: anti-duplicado ANTES del CAE y registro de intención en afip_vouchers_pendientes (como el extracto). */
+async function facturarCore(body, extra = {}) {
+  const req = { body: body || {} };
+  const paso = typeof extra.onPaso === "function" ? extra.onPaso : () => {};
+  const remitoRef = extra.remitoRef ? String(extra.remitoRef) : "";
+  let _pendienteId = null;
   try {
+    paso("preparando");
     const pv = await getPtoVentaSeguro();
     const cuitCliente = onlyDigits(req.body.cuitCliente);
     if (!cuitCliente || cuitCliente.length !== 11) {
-      return res.status(400).json({ message: "CUIT inválido" });
+      return { status: 400, json: { message: "CUIT inválido" } };
     }
 
     const domicilioRemitoIn = String(req.body.domicilioRemito || "").trim();
@@ -1401,19 +1413,33 @@ app.post("/facturar", async (req, res) => {
       return {
         cantidad,
         descripcion,
+        codigo: String(x.codigo || "").trim(),   // 19/11/2026: código de barras (opcional; lo manda la Caja)
         precioConIva: unit,
         subtotalConIva: sub
       };
     }).filter(Boolean);
 
     if (!allItems.length) {
-      return res.status(400).json({ message: "Ítems inválidos" });
+      return { status: 400, json: { message: "Ítems inválidos" } };
     }
 
     const rec = await getReceptorDesdePadron(cuitCliente);
+    paso("padron");
     const { tipo: tipoFactura, condId: condIvaReceptorId } = comprobanteParaReceptor(rec);
 
     const subtotalCalc = sumItemsBruto(allItems);
+    /* Remito: si ya está facturado se devuelve esa factura (nunca una segunda); si ARCA autorizó una del mismo cliente e
+       importe que no llegó a guardarse, se frena y se avisa. Si la consulta falla, se frena también (mejor que duplicar). */
+    if (remitoRef) {
+      const dup = await facturaRemitoExistente(remitoRef, { cuitCliente, total: totalFinalIn > 0 ? totalFinalIn : subtotalCalc });
+      if (dup.facturas.length) {
+        return { status: 200, json: { ok: true, yaFacturado: true, remito: remitoRef, facturas: dup.facturas, receptor: { cuit: cuitCliente, nombre: rec.nombre },
+          mensaje: "Este remito ya estaba facturado: " + dup.facturas.map(f => f.comprobante).join(", ") + ". No se emitió otra." } };
+      }
+      if (dup.pendiente) {
+        return { status: 409, json: { message: "ARCA ya autorizó una factura de este cliente por el mismo importe (CAE " + dup.pendiente.cae + ") que no terminó de guardarse. Revisala en el historial de Facturación antes de volver a emitir.", pendiente: dup.pendiente } };
+      }
+    }
     let factor = 1;
     if (totalFinalIn > 0 && subtotalCalc > 0) factor = totalFinalIn / subtotalCalc;
     else if (descuentoPctIn > 0) factor = 1 - (descuentoPctIn / 100);
@@ -1498,6 +1524,17 @@ app.post("/facturar", async (req, res) => {
       }
 
       // ── Obtener número y emitir con retry ante error 10016 / 400 ──
+      paso("cae");
+      /* Remito: intención registrada ANTES del CAE (si ARCA autoriza y después falla el guardado, queda en 'afip_ok'). */
+      _pendienteId = null;
+      if (remitoRef && supabase) {
+        try {
+          const { data: ins } = await supabase.from("afip_vouchers_pendientes")
+            .insert({ cuit_cliente: cuitCliente, mes: Number(String(fecha).split("-")[1]), anio: Number(String(fecha).split("-")[0]), total: impTotal, estado: "iniciado", cbte_tipo: tipoFactura })
+            .select("id").single();
+          if (ins) _pendienteId = ins.id;
+        } catch (insErr) { console.warn("⚠️ [Remito] intención:", insErr?.message); }
+      }
       let nro, result;
       for (let intento = 0; intento <= 2; intento++) {
         nro = (await afip.ElectronicBilling.getLastVoucher(pv, tipoFactura)) + 1;
@@ -1513,6 +1550,10 @@ app.post("/facturar", async (req, res) => {
         };
         try {
           result = await afip.ElectronicBilling.createVoucher(voucherData);
+          if (_pendienteId && supabase) {
+            try { await supabase.from("afip_vouchers_pendientes").update({ estado: "afip_ok", cae: String(result.CAE), nro_comprobante: nro, punto_venta: pv, updated_at: new Date().toISOString() }).eq("id", _pendienteId); }
+            catch (uErr) { console.warn("⚠️ [Remito] marca afip_ok:", uErr?.message); }
+          }
           break; // éxito
         } catch (afipErr) {
           const msg = String(afipErr?.message || "");
@@ -1579,6 +1620,7 @@ app.post("/facturar", async (req, res) => {
 
       // ── PDF: envuelto en try/catch para que un fallo de límite de plan
       //    no impida guardar la factura en DB (ya tiene CAE válido de AFIP)
+      paso("pdf");
       const nombrePdf = `FA${infoTipoCbte(tipoFactura).letra}_${pad(pv, 5)}-${pad(nro, 8)}`;
       let pdfBuffer = null;
       let pdfPublicUrl = "";
@@ -1590,6 +1632,7 @@ app.post("/facturar", async (req, res) => {
         console.warn(`⚠️ [PDF] Falló generación local (factura ya tiene CAE): ${pdfErr?.message}`);
       }
 
+      paso("guardado");
       const comprobante = await guardarFacturaEnDB({
         cbteTipo: tipoFactura,
         cuitCliente,
@@ -1602,8 +1645,15 @@ app.post("/facturar", async (req, res) => {
         condicionVenta,
         fecha,
         chunkItems,
-        emailAEnviar
+        emailAEnviar,
+        remitoRef,
+        origen: extra.origen || ""
       });
+      if (_pendienteId && supabase) {
+        try { await supabase.from("afip_vouchers_pendientes").update({ estado: "completo", updated_at: new Date().toISOString() }).eq("id", _pendienteId); }
+        catch (uErr) { console.warn("⚠️ [Remito] marca completo:", uErr?.message); }
+        _pendienteId = null;
+      }
 
       mailParts.push({
         parte: i + 1,
@@ -1634,6 +1684,7 @@ app.post("/facturar", async (req, res) => {
     }
 
     // ── EMAIL SINCRÓNICO — se envía ANTES de responder al frontend ──
+    paso("email");
     let emailResult = { sent: false, error: "no intentado" };
     try {
       emailResult = await enviarEmailFactura({
@@ -1672,10 +1723,11 @@ app.post("/facturar", async (req, res) => {
       waText += "\n";
     });
 
-    res.json({
+    return { status: 200, json: {
       ok: true,
       version: APP_VERSION,
       puntoDeVenta: pv,
+      remito: remitoRef || undefined,
       mensaje: finalMsg,
       emailEnviado: emailResult.sent,
       emailError: emailResult.error || "",
@@ -1686,16 +1738,22 @@ app.post("/facturar", async (req, res) => {
         domicilio: domicilioRemitoIn || rec.domicilioAfip
       },
       waLink: `https://wa.me/?text=${encodeURIComponent(waText)}`
-    });
+    } };
 
   } catch (err) {
     const detail = err?.response?.data || err?.data || null;
-    if (!res.headersSent) {
-      res.status(500).json({ message: err.message, detail });
-    }
     console.error("❌ [/facturar]", err?.message || err, detail ? JSON.stringify(detail) : "");
+    return { status: 500, json: { message: err.message, detail } };
   }
+}
+
+app.post("/facturar", async (req, res) => {
+  const r = await facturarCore(req.body);
+  if (!res.headersSent) res.status(r.status).json(r.json);
 });
+
+/* Facturación de remitos desde la Caja de Queruclor (19/11/2026): trabajo en segundo plano + anti-duplicado por remito. */
+montarFacturarRemito(app, { facturarCore, supabase: () => supabase, bucket: () => SUPABASE_STORAGE_BUCKET, condicionVentaDefault: "Cuenta Corriente" });
 
 // ── POST /regenerar-pdf ─────────────────────────────────────────
 // Regenera el PDF de una factura que quedó sin PDF (ej: límite de plan SDK).
@@ -2232,6 +2290,29 @@ process.on("uncaughtException", (err) => { console.error("❌ uncaughtException:
 // ================================================================
 const DB_FACTURAS = path.join(process.cwd(), "facturas_db.jsonl");
 
+/* Facturas ya emitidas de un remito (facturas.remito_ref) y, si no hay, un voucher del mismo cliente e importe que ARCA autorizó
+   y no se terminó de guardar (afip_vouchers_pendientes, estado 'afip_ok', mes en curso). Si la consulta falla, lanza: se frena. */
+async function facturaRemitoExistente(remitoRef, { cuitCliente = "", total = 0 } = {}) {
+  const out = { facturas: [], pendiente: null };
+  if (!supabase) return out;
+  const { data, error } = await supabase.from("facturas")
+    .select("comprobante, nro_factura, punto_venta, cae, cbte_tipo, total, pdf_url, fecha, email_to, email_status, email_error")
+    .eq("remito_ref", String(remitoRef)).order("nro_factura", { ascending: true });
+  if (error) throw new Error("No se pudo consultar si el remito ya estaba facturado: " + (error.message || error));
+  out.facturas = (data || []).map(f => ({ comprobante: f.comprobante, nroFactura: f.nro_factura, puntoVenta: f.punto_venta, cae: f.cae, cbteTipo: f.cbte_tipo,
+    total: Number(f.total), pdfUrl: f.pdf_url || "", fecha: f.fecha, emailTo: f.email_to || "", emailStatus: f.email_status || "", emailError: f.email_error || "" }));
+  if (!out.facturas.length && cuitCliente && total > 0) {
+    const hoy = new Date();
+    const { data: p, error: e2 } = await supabase.from("afip_vouchers_pendientes")
+      .select("id, cae, nro_comprobante, punto_venta, cbte_tipo, total")
+      .eq("cuit_cliente", cuitCliente).eq("mes", hoy.getMonth() + 1).eq("anio", hoy.getFullYear())
+      .gte("total", round2(total) - 2).lte("total", round2(total) + 2).eq("estado", "afip_ok").limit(1);
+    if (e2) throw new Error("No se pudo consultar los vouchers pendientes: " + (e2.message || e2));
+    if (p && p.length) out.pendiente = p[0];
+  }
+  return out;
+}
+
 async function guardarFacturaEnDB({
   cbteTipo = CBTE_TIPO_REAL,
   cuitCliente,
@@ -2246,7 +2327,9 @@ async function guardarFacturaEnDB({
   chunkItems,
   emailAEnviar = "",
   emailStatus = "pending",
-  emailError = ""
+  emailError = "",
+  remitoRef = "",
+  origen = ""
 }) {
   const registro = {
     timestamp: new Date().toISOString(),
@@ -2267,9 +2350,12 @@ async function guardarFacturaEnDB({
     email_to: String(emailAEnviar || ""),
     email_status: String(emailStatus || "pending"),
     email_error: String(emailError || ""),
+    ...(remitoRef ? { remito_ref: String(remitoRef) } : {}),
+    ...(origen ? { origen: String(origen) } : {}),
     items: JSON.stringify((Array.isArray(chunkItems) ? chunkItems : []).map(it => ({
       descripcion: it.descripcion,
       cantidad: it.cantidad,
+      ...(it.codigo ? { codigo: it.codigo } : {}),
       precio_con_iva: it.precioConIva,
       subtotal_con_iva: it.subtotalConIva
     })))
@@ -2458,7 +2544,7 @@ app.get("/historial", async (req, res) => {
 
     let query = supabase
       .from("facturas")
-      .select("comprobante, cbte_tipo, nro_factura, punto_venta, cae, cuit_cliente, nombre_cliente, total, pdf_url, fecha, condicion_venta, email_to, email_status, email_error", { count: "exact" })
+      .select("comprobante, cbte_tipo, nro_factura, punto_venta, cae, cuit_cliente, nombre_cliente, total, pdf_url, fecha, condicion_venta, email_to, email_status, email_error, origen, remito_ref", { count: "exact" })
       .eq("mes",  mes)
       .eq("anio", anio)
       .order("nro_factura", { ascending: false })
@@ -2495,6 +2581,8 @@ app.get("/historial", async (req, res) => {
         fecha:         String(f.fecha || ""),
         condicionVenta: String(f.condicion_venta || ""),
         emailTo:       String(f.email_to || ""),
+        origen:        String(f.origen || ""),          // 19/11/2026: 'caja' cuando la emitió la Caja por remito
+        remito:        String(f.remito_ref || ""),
         anulado
       };
     });
