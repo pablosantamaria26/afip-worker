@@ -634,7 +634,7 @@ El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la
 - Caja v71 publicada después (ver la bitácora del ecosistema).
 - **Reversión:** `git revert` del rango `b802608..8525555` y push.
 
-## 16. Retenciones, percepciones e impuestos bancarios en el reporte al contador — 24/11/2026 (ramas `impuestos-bancarios`, SIN publicar)
+## 16. Retenciones, percepciones e impuestos bancarios en el reporte al contador — 24/11/2026 (PUBLICADO el 24/11/2026)
 
 **Pedido de Pablo:** en cada corrida del extracto, además de lo facturado, mandarle al contador todo lo que el banco retuvo o percibió (ARBA, IVA y demás) para deducir en las declaraciones de ARBA y ARCA.
 - Una hoja nueva dentro del Excel que ya llega, con nombre descriptivo, colorida, por períodos y con totales.
@@ -708,3 +708,8 @@ El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la
 3. La primera corrida real ya manda el email al contador.
 
 **Reversión:** revertir los merges. El registro privado no molesta.
+
+**Publicado el 24/11/2026 con OK de Pablo:**
+- afip-worker `main` = `efa0016` (`/health` = `2026-11-RETENCIONES` en ~80 s; historial y consulta por remito OK).
+- FacturacionML `main` = `33fea0b` (sw v51, servido por Pages en ~45 s).
+- La primera corrida real del extracto ya manda el reporte al contador con copia a Pablo.
