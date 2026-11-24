@@ -894,3 +894,23 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Lista cargada en producción a pedido de Pablo: **angel nicolas calderon (Nico) 20418953862 · Empleado** y **lucia casal 27352293321 · Personal**. Martín no se cargó porque no se sabe su CUIT.
 - Análisis de solo lectura del extracto 1–24/11 consultando cada 1 s: Ornella 13, Caja posible 1 (Giménez), nunca facturar 2. «Facturar todo» ofrece 71 transferencias (.264.375,82).
 - Sitio real: menú «Versión de la app: v54 · al día», producción, actualizador activo, lista visible, sin errores.
+
+## 20. Revisión de la corrida del 24/11 y correcciones del reporte al contador — 24/11/2026 (PUBLICADO el 24/11/2026)
+
+**Revisión de producción (solo lectura) de la corrida «Facturar todo» del extracto 1–24/11:**
+- 49 facturas emitidas, $9.231.463,82 (A-144 a A-173 y B-52 a B-70, sin saltos). Coinciden una por una (CUIT + importe) con las 49 transferencias «a facturar» del análisis.
+- 0 a Ornella (13 · $4.633.400), 0 a la Caja (Giménez, posible), 0 a «nunca facturar» (24 CUIT: Nico, Lucía y 22 del jardín, gasto compartido de $1.496 c/u).
+- Sin duplicados oct–nov: Valenzuela, Zaracho y Mendoza repiten importe, pero son transferencias distintas (fecha y referencia propias).
+- Mail a Sticco con copia a Pablo: 4 hojas; retenciones 28 nuevas ($551.569,35 retenido, $292.158,37 pagos AFIP).
+
+**Correcciones (2f77a81 + versión e074a95, `2026-11-REPORTE-CONTADOR`):**
+- El pie del mail decía «Generado el 2026-11-15» (fecha del período): ahora es el día de la corrida.
+- Las fórmulas de la hoja de retenciones no traían el resultado guardado, así que la vista previa de Gmail o del celular mostraba los totales vacíos. Ahora lo traen.
+- El adjunto salía `Conciliacion_Noviembre_de_2026_2026.xlsx`: ahora no repite el año.
+- Pruebas `probar-impuestos-bancarios.js` 26/26: las 3 nuevas fallan con el código anterior. Ornella 23/23, Caja 22/22, nunca 13/13, remitos 41/41.
+- Verificado: `/health` con la versión nueva; `/nunca-facturar`, `/historial` y `/facturas-remitos` responden bien.
+
+**Pendientes:**
+- Hoja «Ingresos no facturados y por qué» (propuesta, sin decidir).
+- Aviso de Supabase del 22/11: tabla sin RLS en gjeyvbidomxzofcdycya. Para identificarla hace falta un token de administración nuevo (el guardado venció).
+- CUIT de Martín.
