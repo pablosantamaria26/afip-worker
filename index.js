@@ -59,7 +59,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-11-NUNCA-FACTURAR";
+const APP_VERSION = "2026-11-ANALISIS-COMPLETO";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -3859,14 +3859,6 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   const yaFact = todasConEstado.filter(m => m.yaFacturado).length;
   console.log(`✅ [Extracto] Total: ${todasConEstado.length} | Chinos: ${chinos.length} | Ya facturados: ${yaFact}`);
 
-  job.estado        = "terminado";
-  job.ok            = true;
-  job.total         = todasConEstado.length;
-  job.detectados    = chinos.length;
-  job.transferencias = chinos;
-  job.todas         = todasConEstado;
-  job.impuestos     = impuestosLeidos;   // null si el extracto no era el Excel del banco (PDF/imagen)
-  job.ornella       = ornellaInfo;
   /* 24/11/2026: transferencias que pagan facturas YA emitidas desde la Caja (o a mano): pago en partes, importe distinto,
      o quien transfiere coincide con el email de la factura. Se marcan y no se ofrecen (las «posibles» quedan para revisar). */
   let otroCanalInfo;
@@ -3889,6 +3881,17 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
     job.nuncaFacturar = { ok: false, error: eN?.message || String(eN) };
     console.warn("⚠️ [Extracto] No se pudo leer la lista de nunca facturar:", job.nuncaFacturar.error);
   }
+
+  /* 24/11/2026: «terminado» va AL FINAL, después de todos los controles que esperan a la base (Caja, nunca facturar).
+     Antes se marcaba antes: si la app preguntaba en ese intervalo, recibía la lista sin esas marcas. */
+  job.ok            = true;
+  job.total         = todasConEstado.length;
+  job.detectados    = chinos.length;
+  job.transferencias = chinos;
+  job.todas         = todasConEstado;
+  job.impuestos     = impuestosLeidos;   // null si el extracto no era el Excel del banco (PDF/imagen)
+  job.ornella       = ornellaInfo;
+  job.estado        = "terminado";
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────

@@ -885,3 +885,5 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Regresión: Caja 22/22, Ornella 23/23, retenciones 22/22, remitos 41/41.
 
 **A tener en cuenta:** la primera vez (de v53 a v54) la actualización sigue siendo la de antes, al reabrir la app. Desde la v54 en adelante, cada publicación llega sola. **Regla de siempre:** cada cambio de la app sube `CACHE_NAME` en `sw.js` (próximo: v55).
+
+**24/11/2026 — Corrección publicada (versión `2026-11-ANALISIS-COMPLETO`):** el análisis del extracto marcaba el trabajo «terminado» ANTES de los controles que esperan a la base (facturas de la Caja y nunca facturar). Si la app preguntaba en ese intervalo, recibía la lista sin esas marcas: al facturar el servidor igual las frenaba, pero la pantalla las mostraba tildadas. Lo encontró la verificación en producción (`nuncaFacturar: null`). Ahora «terminado» va al final.
