@@ -806,3 +806,32 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Las NC son del 24/11/2026 (período noviembre) y sus PDF abren y nombran la factura original y el motivo.
 - Los emails fueron a la casilla de Mercado Limpio (no a los huéspedes).
 - Antes se revisó, solo lectura, julio–noviembre completo (22 facturas de Ornella contra 525 de Mercado Limpio): **no hay otros duplicados**.
+
+## 18. No volver a facturar lo ya facturado desde la Caja (o a mano) — 24/11/2026 (ramas `facturas-otro-canal`, SIN publicar)
+
+**Pedido de Pablo:** que el extracto no duplique las facturas emitidas en ARCA desde la Caja de Queruclor (y las manuales), que ya figuran en Facturación ML. Fuente de verdad: **solo facturas emitidas** (tabla `facturas`), nunca cobros ni recibos de la Caja (aclaración de Pablo).
+
+**El problema:** esas facturas no tienen referencia bancaria. La deduplicación de siempre solo reconoce la transferencia si viene del mismo CUIT y por el importe exacto (±$2) en el mes. Con los datos reales de noviembre:
+- FA-A-00005-00000141 (Caja, FRAGANCIAS PERFUMERÍAS S.A., $1.546.213,32, email `carlosgimenez358@…`) y una transferencia del 09/11 de «carlos daniel gimenez» desde **su propio CUIT** por $737.390,15: «Facturar todo» la habría facturado otra vez.
+
+**Cómo funciona (`lib/facturas-otro-canal.js`):**
+- Carga las facturas vigentes del rango que **no** vinieron del extracto (sin referencia bancaria, condición sin «EXTRACTO», no anuladas): origen `caja` o manual/remito PDF.
+- Ventana: la transferencia puede ser hasta **45 días antes** de la factura (el cliente paga y la Caja factura después; el caso real fue 11 días) o hasta **60 días después** (cuenta corriente).
+- Marcas:
+  - **segura** (`caja` / `manual`), no se factura: mismo CUIT e importe exacto; o varias transferencias del mismo CUIT que **suman** el total de la factura (pago en partes, hasta 12 transferencias).
+  - **posible**, no se factura sola (Pablo puede tildarla → `forzarCaja`): mismo CUIT pero el importe no cierra; o **otro CUIT cuyo nombre coincide con el email de la factura** (dos palabras del nombre dentro del email).
+- Una factura se usa una sola vez. Lo que ya cubrió una factura no marca transferencias de más (un pago posterior del mismo cliente es una venta nueva).
+- Si la tabla no se puede consultar, **no se emite** (falla cerrada).
+- Enganches en `index.js`: análisis (`todas[i].otroCanal`, `otroCanal: {ok, seguras, posibles}` en `/estado-procesar`), facturación (se verifica **antes de emitir**, después de la Caja va el control de Ornella), `/estado-extracto` agrega `omitidasCaja`.
+- **App (sw v53):** aviso «N transferencias pagan facturas ya emitidas… / N podrían corresponder…» (rojo si no se pudo revisar: el servidor no emite); etiquetas «Ya facturada · Caja/manual» (no se puede tildar; el detalle dice qué factura paga) y «¿Ya facturada?» (destildada; al tildarla avisa y manda `forzarCaja`); «Facturar todo» las excluye; el resultado cuenta «(N ya facturadas desde la Caja o a mano)».
+
+**Pruebas (sin red, datos inventados):** `scripts/probar-otro-canal.js` **22/22** (importe exacto, pago en partes, el caso Giménez por email, email sin relación, ventana, dos facturas iguales al mismo CUIT, manual, decisiones, lectura de la tabla con descarte de extracto/anuladas, tabla caída). App en navegador **11/11** (aviso, etiquetas, no se tilda, Facturar todo, forzar, 9 tamaños, pedido sin la de la Caja y con `forzarCaja`, aviso rojo). Regresión: Ornella 23/23, retenciones 22/22, remitos 41/41. **Validación con datos reales (solo lectura):** extracto 1–19/11 contra las 6 facturas de Caja/manuales de oct–nov → marca únicamente a Giménez como «posible» hacia la FA-A-00005-00000141; ninguna otra de las 121 transferencias.
+
+**Error encontrado por la prueba de la app:** el freno «Ya facturada» estaba después de la línea que invierte el tilde: la fila se veía destildada pero por dentro quedaba incluida y viajaba en el pedido (el servidor igual no la emitía). Corregido: el freno va antes.
+
+**Límites:**
+- Si el cliente paga desde otro CUIT **y** el email de la factura no tiene su nombre, no hay forma de relacionarlos con solo las facturas: se factura. Es el caso de un tercero que paga por otro.
+- «Posible» siempre requiere decisión de Pablo.
+- Las tres FA-M manuales de octubre (sin referencia) entran en el cruce como «manual»: si esos clientes transfieren un importe distinto en la ventana, van a aparecer como «¿Ya facturada?» para revisar.
+
+**Publicación (necesita OK de Pablo):** merge de `facturas-otro-canal` en `main` de afip-worker (Render) y de FacturacionML (sw v53). Compatibles en cualquier orden.

@@ -28,6 +28,7 @@ const { renderComprobanteHtml, generarPdf, nombreArchivoComprobante, fechaAR } =
 const { montarFacturarRemito } = require("./lib/facturar-remito");
 const ImpBanco = require("./lib/impuestos-bancarios");
 const Ornella = require("./lib/conciliar-ornella");
+const OtroCanal = require("./lib/facturas-otro-canal");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -3862,6 +3863,19 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   job.todas         = todasConEstado;
   job.impuestos     = impuestosLeidos;   // null si el extracto no era el Excel del banco (PDF/imagen)
   job.ornella       = ornellaInfo;
+  /* 24/11/2026: transferencias que pagan facturas YA emitidas desde la Caja (o a mano): pago en partes, importe distinto,
+     o quien transfiere coincide con el email de la factura. Se marcan y no se ofrecen (las «posibles» quedan para revisar). */
+  let otroCanalInfo;
+  try {
+    const v = await OtroCanal.verificar(supabase, todasConEstado);
+    todasConEstado.forEach((m, i) => { if (v.marcas[i] && !m.yaFacturado && !m.ornella) m.otroCanal = v.marcas[i]; });
+    otroCanalInfo = { ok: true, seguras: todasConEstado.filter(m => m.otroCanal && m.otroCanal.tipo !== "posible").length, posibles: todasConEstado.filter(m => m.otroCanal && m.otroCanal.tipo === "posible").length, facturas: v.facturas, consultado: v.consultado };
+    console.log(`ℹ️ [Extracto] Caja/manual: ${otroCanalInfo.seguras} seguras · ${otroCanalInfo.posibles} posibles (${v.facturas} facturas de otro canal en el rango)`);
+  } catch (eC) {
+    otroCanalInfo = { ok: false, error: eC?.message || String(eC) };
+    console.warn("⚠️ [Extracto] No se pudo verificar contra las facturas de la Caja:", otroCanalInfo.error);
+  }
+  job.otroCanal     = otroCanalInfo;
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────
@@ -3901,7 +3915,7 @@ app.get("/estado-procesar/:jobId", (req, res) => {
   if (job.estado === "terminado") {
     return res.json({ ok: true, jobId: job.jobId, estado: "terminado",
       total: job.total, detectados: job.detectados,
-      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null, ornella: job.ornella || null });
+      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null, ornella: job.ornella || null, otroCanal: job.otroCanal || null });
   }
   if (job.estado === "error") {
     return res.json({ ok: false, jobId: job.jobId, estado: "error", message: job.errorMsg });
@@ -4437,7 +4451,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
   let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
 
   /* 24/11/2026: antes de emitir, se consulta la facturación de Ornella (cuenta compartida). Si no se puede, no se emite. */
-  let verifOrnella = null, errorOrnella = "";
+  let verifOrnella = null, errorOrnella = "", verifCaja = null, errorCaja = "";
+  try { verifCaja = await OtroCanal.verificar(supabase, transferenciasOrdenadas); }
+  catch (eC) { errorCaja = eC?.message || String(eC); console.warn("⚠️ [Extracto] Facturas de la Caja no verificables, no se emite:", errorCaja); }
   try { verifOrnella = await Ornella.verificar(transferenciasOrdenadas); }
   catch (eO) { errorOrnella = eO?.message || String(eO); console.warn("⚠️ [Extracto] Ornella no verificable, no se emite:", errorOrnella); }
 
@@ -4470,6 +4486,14 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       continue;
     }
 
+    const dCaja = OtroCanal.decidir(t, verifCaja && verifCaja.marcas[transferenciasOrdenadas.indexOf(t)], errorCaja);
+    if (!dCaja.emitir) {
+      console.warn(`⚠️ [Extracto] NO EMITIDO (ya facturada desde la Caja/otro canal): ${nombre} | $${monto} | ${dCaja.resultado.motivo || dCaja.resultado.error}`);
+      job.resultados.push(Object.assign({ nombre, cuit: cuitCliente, monto, pdfUrl: "" }, dCaja.resultado));
+      if (!dCaja.resultado.ok) job.errores++;
+      job.progreso++;
+      continue;
+    }
     const dOrn = Ornella.decidir(t, verifOrnella && verifOrnella.marcas[transferenciasOrdenadas.indexOf(t)], errorOrnella);
     if (!dOrn.emitir) {
       console.warn(`⚠️ [Extracto] NO EMITIDO (Ornella): ${nombre} | $${monto} | ${dOrn.resultado.motivo || dOrn.resultado.error}`);
@@ -4814,6 +4838,7 @@ app.get("/estado-extracto/:jobId", async (req, res) => {
     facturasEmitidas: emitidas,
     omitidas,
     omitidasOrnella: job.resultados.filter(r => r.skipped && r.ornella).length,
+    omitidasCaja: job.resultados.filter(r => r.skipped && r.otroCanal).length,
     errores: job.errores,
     inicio: job.inicio,
     fin: job.fin || null,
