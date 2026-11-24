@@ -577,7 +577,7 @@ Reversión: `git revert` del merge y push (las columnas nuevas en `facturas` pue
 
 **Medido con los 21 renglones reales de la 141:** 4 hojas (3/7/7/4) → 2 hojas (12/9). 40 renglones con nombres largos: 8 hojas → 3 (11/21/8). B sin código, 25 renglones: 3 → 2 (21/4). `scripts/probar-pdf.js` + `scripts/verificar-pdf.py`: TODO OK en los 20 casos (igual que antes del cambio). `scripts/probar-facturar-remito.js` 22/22.
 
-## 15. Remitos ya facturados: bloqueo por remito que resiste dos ventanas y reinicios — 24/11/2026 (rama `remito-estado`, SIN publicar)
+## 15. Remitos ya facturados: bloqueo por remito que resiste dos ventanas y reinicios — 24/11/2026 (PUBLICADO el 24/11/2026)
 
 **Pedido de Pablo:** al volver a entrar a un cliente, la Caja seguía ofreciendo facturar un remito que ya tenía factura oficial. La protección tenía que funcionar también en el servidor, con dos ventanas o pedidos simultáneos, sin identificar el remito solo por CUIT e importe.
 
@@ -627,3 +627,9 @@ La parte de la Caja está en la bitácora del ecosistema (`Queruclor/docs/BITACO
 2. Después, la Caja (v71).
 
 El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la Caja nueva funciona con el servidor publicado: sin `bloqueos`, cada remito se ve como pendiente o facturado, como hoy. **Reversión:** revertir el merge. Las marcas que queden en `remitos/` no molestan al código viejo, que no las lee.
+
+**Publicado el 24/11/2026 con OK de Pablo:**
+- `main` = `8525555`; `/health` = `2026-11-REMITO-ESTADO` en unos 80 s.
+- Verificado en vivo, solo lectura: `/facturas-remitos?remitos=QR-2026-000024` → FA-A-00005-00000141 y `bloqueos: {}` (la lectura de marcas en Storage funciona); `/factura-remito/QR-2026-000024` y `/historial` OK.
+- Caja v71 publicada después (ver la bitácora del ecosistema).
+- **Reversión:** `git revert` del rango `b802608..8525555` y push.
