@@ -807,7 +807,7 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Los emails fueron a la casilla de Mercado Limpio (no a los huéspedes).
 - Antes se revisó, solo lectura, julio–noviembre completo (22 facturas de Ornella contra 525 de Mercado Limpio): **no hay otros duplicados**.
 
-## 18. No volver a facturar lo ya facturado desde la Caja (o a mano) — 24/11/2026 (ramas `facturas-otro-canal`, SIN publicar)
+## 18. No volver a facturar lo ya facturado desde la Caja (o a mano) — 24/11/2026 (PUBLICADO el 24/11/2026)
 
 **Pedido de Pablo:** que el extracto no duplique las facturas emitidas en ARCA desde la Caja de Queruclor (y las manuales), que ya figuran en Facturación ML. Fuente de verdad: **solo facturas emitidas** (tabla `facturas`), nunca cobros ni recibos de la Caja (aclaración de Pablo).
 
@@ -835,3 +835,9 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Las tres FA-M manuales de octubre (sin referencia) entran en el cruce como «manual»: si esos clientes transfieren un importe distinto en la ventana, van a aparecer como «¿Ya facturada?» para revisar.
 
 **Publicación (necesita OK de Pablo):** merge de `facturas-otro-canal` en `main` de afip-worker (Render) y de FacturacionML (sw v53). Compatibles en cualquier orden.
+
+**Publicado el 24/11/2026 con OK de Pablo:**
+- afip-worker `main` = `1d74b3f` (`/health` = `2026-11-CAJA-SIN-DUPLICAR` en ~20 s).
+- Verificado con un análisis de solo lectura del extracto 1–19/11: `otroCanal` ok, 8 facturas de Caja/manuales en el rango, **Giménez «posible» → FA-A-00005-00000141**, ninguna otra marcada; Ornella sigue en 12; retenciones 23. «Facturar todo» pasa de 60 a 59 transferencias.
+- FacturacionML `main` = `0d9bb87` (sw v53, Pages en ~60 s).
+- **Reversión:** revertir `db718d8..1d74b3f` en afip-worker y `0d9bb87` en FacturacionML (subiendo sw a v54).
