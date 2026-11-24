@@ -633,3 +633,78 @@ El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la
 - Verificado en vivo, solo lectura: `/facturas-remitos?remitos=QR-2026-000024` → FA-A-00005-00000141 y `bloqueos: {}` (la lectura de marcas en Storage funciona); `/factura-remito/QR-2026-000024` y `/historial` OK.
 - Caja v71 publicada después (ver la bitácora del ecosistema).
 - **Reversión:** `git revert` del rango `b802608..8525555` y push.
+
+## 16. Retenciones, percepciones e impuestos bancarios en el reporte al contador — 24/11/2026 (ramas `impuestos-bancarios`, SIN publicar)
+
+**Pedido de Pablo:** en cada corrida del extracto, además de lo facturado, mandarle al contador todo lo que el banco retuvo o percibió (ARBA, IVA y demás) para deducir en las declaraciones de ARBA y ARCA.
+- Una hoja nueva dentro del Excel que ya llega, con nombre descriptivo, colorida, por períodos y con totales.
+- Sin duplicados entre corridas (por ejemplo, la del 15 y la del 30).
+- **Decisiones (24/11):** directo al contador con copia a Pablo; incluir en el detalle los pagos a ARBA y a AFIP; arrancar desde este mes (01/11/2026).
+
+**Estudio de los extractos** (7 Excel «Últimos movimientos» de Santander, abril a noviembre 2026, 1.873 movimientos):
+
+| Concepto | Período en los extractos | Detalle |
+|---|---|---|
+| «Retencion arba alicuota s Resp:… / 1,80% sobre $X» | desde octubre | Recaudación bancaria ARBA |
+| «Regimen de recaudacion sircreb i/b … 0,70% / 0,05%» | abril y mayo | SIRCREB |
+| «Impuesto ley 25.413 debito 0,6%» | todos los meses | Sin base; no aparece el de créditos |
+| «Pago de servicios Arba autom.: <objeto>» | — | Pagos a ARBA |
+| «Pago de servicios Imp.afip: <CUIT de la obligación 11 díg.>…» y «Debito automatico Afip -<CUIT>» | — | Pagos a AFIP; varios son de **otros CUIT** (27-94996520-7, 20-41895386-2, 27-29823746-1) |
+
+- **No hay percepciones de IVA en la cuenta:** vienen en las facturas de proveedores, que son otra fuente.
+- **Base × alícuota coincide** con lo retenido (diferencias de 1 a 4 centavos, por redondeo del banco).
+- **Los archivos se superponen** (octubre en dos archivos, 29 de 35 repetidos). La referencia de cada movimiento impositivo es única, y con eso se arma la huella.
+
+**Cómo funciona (`lib/impuestos-bancarios.js` + enganches en `index.js` + FacturacionML):**
+1. **Lectura:** `procesarExtractoArchivo` lee, del mismo Excel, además de las transferencias, los movimientos del catálogo (`leerImpuestosExtracto`). No usa IA.
+   - Regímenes: ARBA_REC, SIRCREB, PERC_IVA, LEY25413_DB/CR, PAGO_AFIP (con CUIT de la obligación y «propio» u «otro CUIT»), PAGO_ARBA (con objeto).
+   - Lo que tiene forma de impuesto pero no está en el catálogo va «a revisar».
+   - Lo anterior a `IMPUESTOS_DESDE` (por defecto `2026-11-01`) se cuenta pero no se informa.
+   - `/estado-procesar` devuelve `impuestos`.
+2. **App:** muestra un aviso en el paso 2 del extracto («Retenciones e impuestos del banco: N movimientos desde el 01/11 · retenido $X · pagos ARBA/AFIP $Y…») y devuelve `impuestos` en `/facturar-extracto`.
+   - Así sobreviven aunque Render se duerma entre el análisis y la facturación.
+   - El servidor los vuelve a validar y recalcula la huella (`normalizarMovimientos`).
+3. **Reporte (`generarReporteExtracto`):** agrega la hoja **«Retenciones e Impuestos Banco»** con encabezado, indicadores y 5 secciones:
+   1. Resumen por período y régimen (totales con fórmulas).
+   2. Dónde se computa cada concepto.
+   3. Detalle de lo nuevo, con control base × alícuota y CUIT de los pagos AFIP.
+   4. Ya informados, en gris y plegable.
+   5. Controles: leídos, ya informados, nuevos, anteriores al inicio, diferencias, pagos de otros CUIT y «a revisar».
+   - Una falla de la hoja **nunca** frena el reporte: se omite y no se registra nada.
+4. **Sin duplicados:** huella = `fecha|referencia|importe|régimen`. Lo enviado se registra en un bucket **privado** de Supabase (`registros-internos/impuestos-bancarios/<YYYY-MM>.json`, que el servidor crea solo si falta).
+   - Se registra **recién cuando Resend confirmó el envío**: si el email falla, entra en la próxima corrida.
+   - Si el registro no se puede leer, la hoja sale igual con un aviso de que puede repetir.
+5. **Email:** `to` = `REPORTE_CONTADOR_EMAIL` (por defecto `Sticcoj@estudiosticco.com.ar`), `cc` = Pablo, `reply_to` = Pablo. El cuerpo suma la línea «Retenciones e Impuestos Banco — N nuevos · retenido $X · pagos ARBA/AFIP $Y».
+
+**Pruebas (sin red, sin Resend real, sin Supabase real):**
+- `scripts/probar-impuestos-bancarios.js` **22/22**, con los extractos reales y la función REAL `generarReporteExtracto` extraída de `index.js`:
+  - lectura de noviembre: 18 ARBA, 4 Ley 25.413 y 1 pago AFIP de otro CUIT, $44.784,77;
+  - octubre y agosto fuera por la fecha de arranque;
+  - concepto desconocido «a revisar»;
+  - validación de lo que manda la app;
+  - el email va al contador con copia a Pablo;
+  - registro privado;
+  - las 4 hojas;
+  - corrida del 15/11 → todo nuevo;
+  - corrida del 19/11 con el extracto 1–19 → solo lo del 16 al 19 es nuevo;
+  - mismo archivo otra vez → 0 nuevos;
+  - email fallido → no registra y entra en la siguiente;
+  - registro caído → aviso;
+  - PDF → la hoja lo explica;
+  - datos raros → el reporte sale.
+- App (modo prueba, navegador): aviso con los números reales, pedido con `impuestos` y 9 tamaños sin solapamientos: 5/5.
+- Regresión: `probar-facturar-remito.js` 41/41.
+- Ejemplo y maqueta en `C:\Users\Pablo Daniel\Proyectos\Afip-Worker\Maqueta-Retenciones-Bancarias\`.
+
+**Límites:**
+- `/facturar-extracto` sigue exigiendo al menos una transferencia: en una corrida sin nada para facturar, las retenciones esperan a la siguiente (no se pierden).
+- Solo se lee el Excel del banco (en PDF o imagen la hoja lo avisa).
+- No incluye percepciones de proveedores.
+- Lo que informa la hoja sale del extracto; las constancias oficiales siguen en ARBA, SIFERE y ARCA.
+
+**Publicación (necesita OK de Pablo):**
+1. Merge `impuestos-bancarios` → `main` de afip-worker (Render).
+2. FacturacionML → `main` (sw v51). El servidor nuevo funciona con la app vieja (sin `impuestos`, la hoja avisa) y la app nueva con el servidor viejo (el campo se ignora).
+3. La primera corrida real ya manda el email al contador.
+
+**Reversión:** revertir los merges. El registro privado no molesta.

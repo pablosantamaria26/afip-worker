@@ -26,6 +26,7 @@ const XLSX     = require("xlsx");
 const ExcelJS  = require("exceljs");
 const { renderComprobanteHtml, generarPdf, nombreArchivoComprobante, fechaAR } = require("./lib/pdf-comprobante");
 const { montarFacturarRemito } = require("./lib/facturar-remito");
+const ImpBanco = require("./lib/impuestos-bancarios");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -3690,11 +3691,14 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   const isPdf  = mimeType === "application/pdf" || origName.endsWith(".pdf");
 
   let movimientos = [];
+  let impuestosLeidos = null;   // retenciones, percepciones, impuestos y pagos a ARBA/AFIP (lib/impuestos-bancarios.js)
   try {
     if (isXlsx) {
       const wb   = XLSX.readFile(filePath);
       const sh   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
+      try { impuestosLeidos = ImpBanco.leerImpuestosExtracto(rows); console.log(`✅ [Extracto XLSX] Impuestos/retenciones/pagos: ${impuestosLeidos.movimientos.length} (a revisar: ${impuestosLeidos.aRevisar.length})`); }
+      catch (eImp) { console.warn("⚠️ [Extracto] No se pudieron leer las retenciones:", eImp?.message); }
       let dataStart = 0;
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i].map(c => String(c).toLowerCase());
@@ -3843,6 +3847,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   job.detectados    = chinos.length;
   job.transferencias = chinos;
   job.todas         = todasConEstado;
+  job.impuestos     = impuestosLeidos;   // null si el extracto no era el Excel del banco (PDF/imagen)
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────
@@ -3882,7 +3887,7 @@ app.get("/estado-procesar/:jobId", (req, res) => {
   if (job.estado === "terminado") {
     return res.json({ ok: true, jobId: job.jobId, estado: "terminado",
       total: job.total, detectados: job.detectados,
-      transferencias: job.transferencias, todas: job.todas });
+      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null });
   }
   if (job.estado === "error") {
     return res.json({ ok: false, jobId: job.jobId, estado: "error", message: job.errorMsg });
@@ -3892,7 +3897,7 @@ app.get("/estado-procesar/:jobId", (req, res) => {
 
 // ── generarReporteExtracto ────────────────────────────────────────
 // Genera y envía el Excel de conciliación del extracto mensual.
-async function generarReporteExtracto({ resultados, todasTransferencias, emailReporte, fecha, totalFacturado }) {
+async function generarReporteExtracto({ resultados, todasTransferencias, emailReporte, fecha, totalFacturado, impuestos, fechaCorrida }) {
   try {
     const wb = new ExcelJS.Workbook();
     wb.creator = "Mercado Limpio";
@@ -4210,15 +4215,39 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     wsE.views = [{ state: "frozen", ySplit: 7, xSplit: 0, showGridLines: false }];
     wsE.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: 6 } };
 
+    // ── HOJA 4: RETENCIONES E IMPUESTOS BANCO (24/11/2026) ──────
+    // Lo que el banco retuvo/percibió/cobró + pagos a ARBA y AFIP, sin repetir lo informado en corridas anteriores.
+    /* Una falla acá NUNCA frena el reporte de facturación: la hoja se omite y no se registra nada como enviado. */
+    let impClas = { nuevos: [], yaEnviados: [] };
+    try {
+    const impMovs = ImpBanco.normalizarMovimientos(impuestos && impuestos.movimientos);
+    impClas = await ImpBanco.clasificar(supabase, impMovs);
+    ImpBanco.agregarHojaImpuestos(wb, {
+      cuenta: impuestos && impuestos.cuenta, periodoExtracto: impuestos && impuestos.periodoExtracto, fechaCorrida: fechaCorrida || todayISO(),
+      nuevos: impClas.nuevos, yaEnviados: impClas.yaEnviados, historial: impClas.historial,
+      aRevisar: (impuestos && Array.isArray(impuestos.aRevisar) ? impuestos.aRevisar : []).slice(0, 50).map(d => ({ fecha: String(d.fecha || ""), descripcion: String(d.descripcion || "").slice(0, 200), referencia: String(d.referencia || ""), importe: Number(d.importe) || 0 })),
+      anteriores: Number(impuestos && impuestos.anteriores) || 0,
+      aviso: impuestos ? impClas.aviso : "Este extracto no era el Excel del banco (PDF o imagen): las retenciones se leen solo del Excel «Últimos movimientos».",
+    });
+    } catch (eImp) {
+      console.error("⚠️ [Reporte] No se pudo armar la hoja de retenciones (el reporte sale igual):", eImp?.message);
+      impClas = { nuevos: [], yaEnviados: [] };
+      try { const w = wb.getWorksheet("Retenciones e Impuestos Banco"); if (w) wb.removeWorksheet(w.id); } catch {}
+    }
+    const impRes = ImpBanco.resumen(impClas.nuevos, impClas.yaEnviados);
+
     // ── Generar buffer y enviar por email ───────────────────────
     const xlsxBuffer = await wb.xlsx.writeBuffer();
     if (!resendClient) throw new Error("Resend no configurado");
+    /* 24/11/2026 (Pablo): directo al contador, con copia a Pablo. */
+    const paraContador = String(process.env.REPORTE_CONTADOR_EMAIL || "Sticcoj@estudiosticco.com.ar").split(",").map(x => x.trim()).filter(Boolean);
 
     const corrida = resultados.filter(r => r.ok && !r.skipped).length;
     const { error: rErr } = await resendClient.emails.send({
       from: `"${EMISOR.nombreVisible}" <ventas@mercadolimpio.ar>`,
-      to: emailReporte,
-      reply_to: GMAIL_USER,
+      to: paraContador,
+      cc: [emailReporte].filter(e => e && !paraContador.includes(e)),
+      reply_to: emailReporte || GMAIL_USER,
       subject: `📊 Conciliación ${mesNombreCap} — ${todasFacturasMes.length} facturas · $${formatMoneyAR(totalMesCompleto)}`,
       html: `
 <div style="font-family:'Segoe UI',Arial,sans-serif;background:#f4f7fb;padding:32px 0;">
@@ -4267,10 +4296,17 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
           </td>
         </tr>
         <tr>
-          <td style="padding:10px 12px;background:#F0F4F8;border-radius:0 0 8px 8px;">
+          <td style="padding:10px 12px;background:#F0F4F8;border-bottom:1px solid #D8E3EE;">
             <span style="font-size:15px;">🟢</span>
             <strong style="color:#1E3A5F;margin-left:8px;">Extracto Bancario</strong>
             <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${corrida} emitidas en esta corrida</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;background:#F0F4F8;border-radius:0 0 8px 8px;">
+            <span style="font-size:15px;">🏦</span>
+            <strong style="color:#1E3A5F;margin-left:8px;">Retenciones e Impuestos Banco</strong>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${impRes.nuevos} nuevos · retenido $${formatMoneyAR(impRes.retenidoNuevo)} · pagos ARBA/AFIP $${formatMoneyAR(impRes.pagosNuevos)}</span>
           </td>
         </tr>
       </table>
@@ -4292,7 +4328,12 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
       }]
     });
     if (rErr) throw new Error(`Resend: ${rErr.message || JSON.stringify(rErr)}`);
-    console.log(`✅ [Reporte] Excel de conciliación enviado a ${emailReporte}`);
+    console.log(`✅ [Reporte] Excel de conciliación enviado a ${paraContador.join(", ")} (copia ${emailReporte})`);
+    /* Recién con el email enviado se registra lo informado: si el envío falla, entra en la próxima corrida. */
+    if (supabase && impClas.nuevos.length) {
+      try { await ImpBanco.registrarEnviados(supabase, impClas.nuevos, { id: `rep_${Date.now()}`, en: new Date().toISOString() }); console.log(`✅ [Reporte] Retenciones registradas como enviadas: ${impClas.nuevos.length}`); }
+      catch (eReg) { console.error("⚠️ [Reporte] No se pudo registrar lo enviado (la próxima corrida puede repetirlo):", eReg?.message); }
+    }
   } catch (e) {
     console.error("⚠️ [Reporte] Error generando reporte:", e?.message);
   }
@@ -4324,7 +4365,7 @@ async function cargarJobExtracto(jobId) {
   } catch { return null; }
 }
 
-async function procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv }) {
+async function procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv, impuestos }) {
   const job = jobsExtracto.get(jobId);
 
   // ── Ventana de fechas de AFIP (WSFEv1, Concepto 1 = productos) ────────────
@@ -4658,7 +4699,9 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     todasTransferencias,
     emailReporte,
     fecha: periodoConciliado,
-    totalFacturado: job.totalFacturado
+    totalFacturado: job.totalFacturado,
+    impuestos,
+    fechaCorrida: todayISO()
   }).catch(e => console.error("⚠️ [Reporte] Error inesperado:", e?.message));
 }
 
@@ -4673,6 +4716,7 @@ app.post("/facturar-extracto", async (req, res) => {
     const todasTransferencias = Array.isArray(req.body.todasTransferencias) ? req.body.todasTransferencias : [];
     const condicionVenta = String(req.body.condicionVenta || "Transferencia Bancaria");
     const emailReporte   = String(req.body.emailReporte || "santamariapablodaniel@gmail.com");
+    const impuestos = req.body.impuestos && typeof req.body.impuestos === "object" ? req.body.impuestos : null;
     const fecha   = todayISO();
     const cbteFch = yyyymmdd(fecha);
     const pv      = await getPtoVentaSeguro();
@@ -4689,7 +4733,7 @@ app.post("/facturar-extracto", async (req, res) => {
     // Responder inmediatamente — el servidor sigue procesando aunque el celu se apague
     res.json({ ok: true, jobId, estado: "procesando", total: transferencias.length });
 
-    procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv })
+    procesarExtractoEnBackground(jobId, { transferencias, todasTransferencias, condicionVenta, emailReporte, fecha, cbteFch, pv, impuestos })
       .catch(e => {
         const job = jobsExtracto.get(jobId);
         if (job) { job.estado = "error"; job.errorMsg = e?.message; }
