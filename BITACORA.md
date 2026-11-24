@@ -887,3 +887,10 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 **A tener en cuenta:** la primera vez (de v53 a v54) la actualización sigue siendo la de antes, al reabrir la app. Desde la v54 en adelante, cada publicación llega sola. **Regla de siempre:** cada cambio de la app sube `CACHE_NAME` en `sw.js` (próximo: v55).
 
 **24/11/2026 — Corrección publicada (versión `2026-11-ANALISIS-COMPLETO`):** el análisis del extracto marcaba el trabajo «terminado» ANTES de los controles que esperan a la base (facturas de la Caja y nunca facturar). Si la app preguntaba en ese intervalo, recibía la lista sin esas marcas: al facturar el servidor igual las frenaba, pero la pantalla las mostraba tildadas. Lo encontró la verificación en producción (`nuncaFacturar: null`). Ahora «terminado» va al final.
+
+**24/11/2026 — Sección 19 PUBLICADA y verificada:**
+- afip-worker `main` = `87e5972` (`2026-11-ANALISIS-COMPLETO`).
+- FacturacionML `main` = `80f1bfe` (sw v54).
+- Lista cargada en producción a pedido de Pablo: **angel nicolas calderon (Nico) 20418953862 · Empleado** y **lucia casal 27352293321 · Personal**. Martín no se cargó porque no se sabe su CUIT.
+- Análisis de solo lectura del extracto 1–24/11 consultando cada 1 s: Ornella 13, Caja posible 1 (Giménez), nunca facturar 2. «Facturar todo» ofrece 71 transferencias (.264.375,82).
+- Sitio real: menú «Versión de la app: v54 · al día», producción, actualizador activo, lista visible, sin errores.
