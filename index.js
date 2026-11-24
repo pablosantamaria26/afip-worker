@@ -30,6 +30,7 @@ const ImpBanco = require("./lib/impuestos-bancarios");
 const Ornella = require("./lib/conciliar-ornella");
 const OtroCanal = require("./lib/facturas-otro-canal");
 const Nunca = require("./lib/nunca-facturar");
+const Ingresos = require("./lib/ingresos-extracto");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -59,7 +60,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-11-REPORTE-CONTADOR";
+const APP_VERSION = "2026-11-INGRESOS-NO-FACTURADOS";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -4222,7 +4223,9 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     emitidas.forEach((r, idx) => {
       const rn  = DATA_START_E + idx;
       const cuitR = onlyDigits(String(r.cuit || ""));
-      const t   = transfPorCuit.get(cuitR);
+      /* 24/11/2026: el resultado trae SU transferencia (fecha y monto). Antes se tomaba la primera transferencia del
+         CUIT: un cliente con dos transferencias mostraba dos veces la misma fecha y el mismo monto. */
+      const t   = r.fechaTransf ? { fecha: r.fechaTransf, monto: r.montoTransf } : transfPorCuit.get(cuitR);
       wsE.getRow(rn).height = 17;
       [
         t?.fecha  || "",
@@ -4259,7 +4262,20 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     wsE.views = [{ state: "frozen", ySplit: 7, xSplit: 0, showGridLines: false }];
     wsE.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: 6 } };
 
-    // ── HOJA 4: RETENCIONES E IMPUESTOS BANCO (24/11/2026) ──────
+    // ── HOJA 4: INGRESOS NO FACTURADOS Y POR QUÉ (24/11/2026) ────
+    // Cada transferencia recibida con su situación (facturada, Ornella, Caja, personal, a revisar, sin facturar) y respaldo.
+    /* Una falla acá NUNCA frena el reporte: la hoja se omite. */
+    let ingresos = null;
+    try {
+      ingresos = await Ingresos.armar({ supabase, Ornella, OtroCanal, Nunca }, todasTransferencias, resultados);
+      Ingresos.agregarHoja(wb, { ...ingresos, periodo: mesNombreCap, fechaCorrida: fechaCorrida || todayISO() });
+    } catch (eIng) {
+      console.error("⚠️ [Reporte] No se pudo armar la hoja de ingresos no facturados (el reporte sale igual):", eIng?.message);
+      ingresos = null;
+      try { const w = wb.getWorksheet("Ingresos no facturados"); if (w) wb.removeWorksheet(w.id); } catch {}
+    }
+
+    // ── HOJA 5: RETENCIONES E IMPUESTOS BANCO (24/11/2026) ──────
     // Lo que el banco retuvo/percibió/cobró + pagos a ARBA y AFIP, sin repetir lo informado en corridas anteriores.
     /* Una falla acá NUNCA frena el reporte de facturación: la hoja se omite y no se registra nada como enviado. */
     let impClas = { nuevos: [], yaEnviados: [] };
@@ -4345,7 +4361,14 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
             <strong style="color:#1E3A5F;margin-left:8px;">Extracto Bancario</strong>
             <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${corrida} emitidas en esta corrida</span>
           </td>
-        </tr>
+        </tr>${ingresos ? `
+        <tr>
+          <td style="padding:10px 12px;background:#F0F4F8;border-bottom:1px solid #D8E3EE;">
+            <span style="font-size:15px;">🟣</span>
+            <strong style="color:#1E3A5F;margin-left:8px;">Ingresos no facturados</strong>
+            <span style="color:#6B8CAD;font-size:12px;margin-left:4px;">— ${Ingresos.textoEmail(ingresos.resumen)} · $${formatMoneyAR(ingresos.resumen.noFacturado.importe)}</span>
+          </td>
+        </tr>` : ""}
         <tr>
           <td style="padding:10px 12px;background:#F0F4F8;border-radius:0 0 8px 8px;">
             <span style="font-size:15px;">🏦</span>
@@ -4480,6 +4503,11 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     const monto       = Math.abs(Number(t.monto || 0));
     const nombre      = String(t.nombre || "Cliente");
     const fechaTransf = String(t.fecha || fecha);
+    /* 24/11/2026: cada resultado de esta transferencia (emitida, omitida o con error) se anota con SU transferencia
+       (referencia, fecha y monto), para que el reporte la ubique exacta aunque el cliente haya transferido varias veces.
+       El bloque finally corre también en cada «continue». */
+    const resultadosAntes = job.resultados.length;
+    try {
 
     // CbteFch: se respeta la fecha real de la transferencia, acotada a la
     // ventana [fechaMinAfip … hoy] y sin retroceder respecto de la última
@@ -4750,6 +4778,12 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: err?.message || "Error AFIP" });
       job.errores++;
       job.progreso++;
+    }
+
+    } finally {
+      for (let k = resultadosAntes; k < job.resultados.length; k++) {
+        Object.assign(job.resultados[k], { referencia: String(t.referencia || ""), fechaTransf, montoTransf: monto });
+      }
     }
 
     // Persistir progreso tras cada transferencia: si Render recicla el proceso

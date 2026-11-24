@@ -15,7 +15,7 @@ const filas = f => XLSX.utils.sheet_to_json(XLSX.readFile(path.join(DIR, f)).She
 function supabaseFalso() {
   const buckets = {}, ctl = { fallarRegistro: false };
   const facturas = [{ comprobante: "FA-A-00005-00000150", cuit_cliente: "27956214225", nombre_cliente: "YAN XIUYU", total: 100000, cae: "1", pdf_url: "", mes: 11, anio: 2026, fecha: "2026-11-19" }];
-  const q = () => { const f = []; const api = { select() { return api; }, eq(c, v) { f.push(r => r[c] === v); return api; }, gt(c, v) { f.push(r => r[c] > v); return api; }, lt(c, v) { f.push(r => r[c] < v); return api; }, order() { return api; }, in() { return api; },
+  const q = () => { const f = []; const api = { select() { return api; }, eq(c, v) { f.push(r => r[c] === v); return api; }, gt(c, v) { f.push(r => r[c] > v); return api; }, gte(c, v) { f.push(r => r[c] >= v); return api; }, lte(c, v) { f.push(r => r[c] <= v); return api; }, range() { return api; }, lt(c, v) { f.push(r => r[c] < v); return api; }, order() { return api; }, in() { return api; },
     then(res) { res({ data: facturas.filter(r => f.every(x => x(r))), error: null }); } }; return api; };
   const err = m => ({ data: null, error: { message: m } });
   return { ctl, buckets, from: q, storage: {
@@ -33,7 +33,9 @@ function reporteReal(sb, envios, fallarEnvio) {
   const src = fs.readFileSync(path.join(__dirname, "..", "index.js"), "utf8").replace(/\r\n/g, "\n");
   const a = src.indexOf("async function generarReporteExtracto("), b = src.indexOf("// ── Store de jobs de extracto", a);
   const ctx = { module: { exports: {} }, console: { log() {}, warn() {}, error: (...x) => envios.errores.push(x.join(" ")) }, Buffer, Date, Number, String, Math, JSON, Promise, Object, Array, Map, Set, RegExp, process,
-    ExcelJS, ImpBanco: Imp, supabase: sb, EMISOR: { nombreVisible: "MERCADO LIMPIO DISTRIBUIDORA" }, GMAIL_USER: "ventas@mercadolimpio.ar",
+    ExcelJS, ImpBanco: Imp, supabase: sb,
+    Ingresos: require("../lib/ingresos-extracto"), Ornella: { verificar: async x => ({ marcas: x.map(() => null) }) }, OtroCanal: { verificar: async (_, x) => ({ marcas: x.map(() => null) }) },
+    Nunca: { leer: async () => ({ cuits: { "27000000006": { nombre: "prueba", motivo: "personal" } }, historial: [] }), marca: require("../lib/nunca-facturar").marca }, EMISOR: { nombreVisible: "MERCADO LIMPIO DISTRIBUIDORA" }, GMAIL_USER: "ventas@mercadolimpio.ar",
     formatMoneyAR: n => Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), onlyDigits: s => String(s || "").replace(/\D/g, ""), todayISO: () => "2026-11-19", round2: n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100,
     resendClient: { emails: { send: async m => { if (fallarEnvio) return { error: { message: "Resend: rechazo simulado" } }; envios.lista.push(m); return { error: null }; } } } };
   vm.createContext(ctx); vm.runInContext(src.slice(a, b) + "\nmodule.exports = generarReporteExtracto;", ctx);
@@ -65,8 +67,10 @@ function reporteReal(sb, envios, fallarEnvio) {
   console.log("\n3 · Corridas del 15/11 y del 19/11 con el reporte REAL (Resend falso)");
   const sb = supabaseFalso(), envios = { lista: [], errores: [] };
   const hasta15 = { ...nov, movimientos: nov.movimientos.filter(m => m.fecha <= "2026-11-15") };
-  const resultados = [{ ok: true, comprobante: "FA-A-00005-00000150", cuit: "27956214225", nombre: "YAN XIUYU", total: 100000, cae: "1" }];
-  const base = { resultados, todasTransferencias: [], emailReporte: "santamariapablodaniel@gmail.com", fecha: "2026-11-15", totalFacturado: 100000 };
+  const resultados = [{ ok: true, comprobante: "FA-A-00005-00000150", cuit: "27956214225", nombre: "YAN XIUYU", total: 100000, cae: "1", referencia: "R2", fechaTransf: "2026-11-12", montoTransf: 100000 }];
+  /* Transferencias del extracto (ficticias): el mismo cliente transfirió dos veces el mismo monto; se facturó la segunda. Otra es personal. */
+  const todas = [{ cuit: "27956214225", monto: 100000, nombre: "yan xiuyu", fecha: "2026-11-03", referencia: "R1" }, { cuit: "27956214225", monto: 100000, nombre: "yan xiuyu", fecha: "2026-11-12", referencia: "R2" }, { cuit: "27000000006", monto: 1500, nombre: "persona prueba", fecha: "2026-11-05", referencia: "R3" }];
+  const base = { resultados, todasTransferencias: todas, emailReporte: "santamariapablodaniel@gmail.com", fecha: "2026-11-15", totalFacturado: 100000 };
   await reporteReal(sb, envios)({ ...base, impuestos: hasta15, fechaCorrida: "2026-11-15" });
   if (!envios.lista.length) console.log("ERRORES DEL REPORTE:", envios.errores);
   const m1 = envios.lista[0] || {};
@@ -92,6 +96,12 @@ function reporteReal(sb, envios, fallarEnvio) {
   wbX.SheetNames.forEach(n => { const ws = wbX.Sheets[n]; Object.keys(ws).filter(a => a[0] !== "!" && ws[a].f).forEach(a => { formulas++; if (typeof ws[a].v !== "number") sinResultado.push(n + "!" + a); }); });
   t("todas las fórmulas llevan el total ya calculado (se ven en la vista previa de Gmail/celular)", formulas > 0 && !sinResultado.length, { formulas, sinResultado: sinResultado.slice(0, 8) });
   t("el adjunto se llama Conciliacion_Noviembre_de_2026.xlsx (sin el año repetido)", m2.attachments[0].filename === "Conciliacion_Noviembre_de_2026.xlsx", m2.attachments[0].filename);
+  const hIng = wb2.getWorksheet("Ingresos no facturados");
+  t("el Excel trae la hoja «Ingresos no facturados» antes de la de retenciones", hIng && wb2.worksheets.map(w => w.name).join("|") === "Facturas Emitidas|Notas de Crédito|Extracto Bancario|Ingresos no facturados|Retenciones e Impuestos Banco", wb2.worksheets.map(w => w.name));
+  const enSituacion = txt => { let n = 0; hIng.eachRow(r => { if (r.getCell(6).value === txt && r.getCell(5).value) n++; }); return n; }; /* columna «Situación» del detalle (filas con referencia) */
+  t("… y explica las dos transferencias sin factura (una sin facturar, otra personal) y el email lo resume", enSituacion("Sin facturar") === 1 && enSituacion("No es venta") === 1 && m2.html.includes("2 sin factura de Mercado Limpio (no es venta 1 · sin facturar 1) · $101.500,00"), (m2.html.match(/Ingresos no facturados<\/strong>[\s\S]{0,200}/) || [])[0]);
+  const hExt = wb2.getWorksheet("Extracto Bancario"); let fechaExt = null; hExt.eachRow(r => { if (r.getCell(5).value === "FA-A-00005-00000150") fechaExt = r.getCell(1).value; });
+  t("«Extracto Bancario» muestra la fecha de LA transferencia facturada (12/11), no la primera del cliente (03/11)", fechaExt === "2026-11-12", fechaExt);
   const tot = []; hoja.eachRow(r => { if (r.getCell(1).value === "TOTAL") tot.push(r.getCell(7).value); });
   t("el TOTAL retenido calculado coincide con la suma de los movimientos", tot.length === 1 && Math.abs(tot[0].result - nov.movimientos.filter(m => !/^PAGO_/.test(m.regimen)).reduce((s, m) => s + m.importe, 0)) < 0.01, tot);
   envios.lista = [];
