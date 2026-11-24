@@ -29,6 +29,7 @@ const { montarFacturarRemito } = require("./lib/facturar-remito");
 const ImpBanco = require("./lib/impuestos-bancarios");
 const Ornella = require("./lib/conciliar-ornella");
 const OtroCanal = require("./lib/facturas-otro-canal");
+const Nunca = require("./lib/nunca-facturar");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -58,7 +59,7 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(cors());
 
-const APP_VERSION = "2026-11-CAJA-SIN-DUPLICAR";
+const APP_VERSION = "2026-11-NUNCA-FACTURAR";
 const DEBUG = String(process.env.DEBUG || "0") === "1";
 
 const CUIT_DISTRIBUIDORA = Number(process.env.CUIT_DISTRIBUIDORA);
@@ -2546,6 +2547,9 @@ app.get("/admin/facturas-mes", async (req, res) => {
 // ── GET /historial ─────────────────────────────────────────────
 // Búsqueda de comprobantes por mes/año + término libre (CUIT o nombre).
 // Query params: mes, anio, q (opcional), page (default 1), limit (default 40)
+// 24/11/2026: lista de «nunca facturar» (empleados, familia, personal) — lib/nunca-facturar.js
+Nunca.montarNuncaFacturar(app, { supabase: () => supabase });
+
 app.get("/historial", async (req, res) => {
   try {
     if (!supabase) return res.status(503).json({ ok: false, message: "Supabase no disponible" });
@@ -3876,6 +3880,15 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
     console.warn("⚠️ [Extracto] No se pudo verificar contra las facturas de la Caja:", otroCanalInfo.error);
   }
   job.otroCanal     = otroCanalInfo;
+  /* 24/11/2026: lista de «nunca facturar» (empleados, familia, personal): se marcan y no se ofrecen. */
+  try {
+    const lista = await Nunca.leer(supabase);
+    todasConEstado.forEach(m => { const x = Nunca.marca(lista, m.cuit); if (x) m.excluido = x; });
+    job.nuncaFacturar = { ok: true, marcadas: todasConEstado.filter(m => m.excluido).length, enLista: Object.keys(lista.cuits).length };
+  } catch (eN) {
+    job.nuncaFacturar = { ok: false, error: eN?.message || String(eN) };
+    console.warn("⚠️ [Extracto] No se pudo leer la lista de nunca facturar:", job.nuncaFacturar.error);
+  }
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────
@@ -3915,7 +3928,7 @@ app.get("/estado-procesar/:jobId", (req, res) => {
   if (job.estado === "terminado") {
     return res.json({ ok: true, jobId: job.jobId, estado: "terminado",
       total: job.total, detectados: job.detectados,
-      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null, ornella: job.ornella || null, otroCanal: job.otroCanal || null });
+      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null, ornella: job.ornella || null, otroCanal: job.otroCanal || null, nuncaFacturar: job.nuncaFacturar || null });
   }
   if (job.estado === "error") {
     return res.json({ ok: false, jobId: job.jobId, estado: "error", message: job.errorMsg });
@@ -4451,7 +4464,8 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
   let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
 
   /* 24/11/2026: antes de emitir, se consulta la facturación de Ornella (cuenta compartida). Si no se puede, no se emite. */
-  let verifOrnella = null, errorOrnella = "", verifCaja = null, errorCaja = "";
+  let verifOrnella = null, errorOrnella = "", verifCaja = null, errorCaja = "", listaNunca = null;
+  try { listaNunca = await Nunca.leer(supabase); } catch (eN) { console.warn("⚠️ [Extracto] Lista de nunca facturar no disponible (se usa lo que eligió la app):", eN?.message); }
   try { verifCaja = await OtroCanal.verificar(supabase, transferenciasOrdenadas); }
   catch (eC) { errorCaja = eC?.message || String(eC); console.warn("⚠️ [Extracto] Facturas de la Caja no verificables, no se emite:", errorCaja); }
   try { verifOrnella = await Ornella.verificar(transferenciasOrdenadas); }
@@ -4486,6 +4500,13 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
       continue;
     }
 
+    const dNunca = Nunca.decidir(t, listaNunca);
+    if (!dNunca.emitir) {
+      console.warn(`⚠️ [Extracto] NO EMITIDO (nunca facturar): ${nombre} | $${monto}`);
+      job.resultados.push(Object.assign({ nombre, cuit: cuitCliente, monto, total: monto, pdfUrl: "" }, dNunca.resultado));
+      job.progreso++;
+      continue;
+    }
     const dCaja = OtroCanal.decidir(t, verifCaja && verifCaja.marcas[transferenciasOrdenadas.indexOf(t)], errorCaja);
     if (!dCaja.emitir) {
       console.warn(`⚠️ [Extracto] NO EMITIDO (ya facturada desde la Caja/otro canal): ${nombre} | $${monto} | ${dCaja.resultado.motivo || dCaja.resultado.error}`);
@@ -4839,6 +4860,7 @@ app.get("/estado-extracto/:jobId", async (req, res) => {
     omitidas,
     omitidasOrnella: job.resultados.filter(r => r.skipped && r.ornella).length,
     omitidasCaja: job.resultados.filter(r => r.skipped && r.otroCanal).length,
+    omitidasNunca: job.resultados.filter(r => r.skipped && r.nuncaFacturar).length,
     errores: job.errores,
     inicio: job.inicio,
     fin: job.fin || null,

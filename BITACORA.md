@@ -841,3 +841,47 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Verificado con un análisis de solo lectura del extracto 1–19/11: `otroCanal` ok, 8 facturas de Caja/manuales en el rango, **Giménez «posible» → FA-A-00005-00000141**, ninguna otra marcada; Ornella sigue en 12; retenciones 23. «Facturar todo» pasa de 60 a 59 transferencias.
 - FacturacionML `main` = `0d9bb87` (sw v53, Pages en ~60 s).
 - **Reversión:** revertir `db718d8..1d74b3f` en afip-worker y `0d9bb87` en FacturacionML (subiendo sw a v54).
+
+## 19. Lista de «nunca facturar» y actualización automática de la app — 24/11/2026
+
+**Pedido de Pablo:**
+- Que las transferencias de empleados (Nico, Martín), familia o gastos personales (Lucía Casal: una cena) no aparezcan para facturar, sin tener que acordarse en cada corrida.
+- Que la app avise cuando hay una versión nueva y se actualice sola: «si no, no sé qué versión hay en cada cambio que publicamos».
+
+**Nunca facturar (`lib/nunca-facturar.js`):**
+- Lista por CUIT en el almacenamiento PRIVADO (`registros-internos/nunca-facturar.json`), la misma para el celular y la PC. Cada alta y baja queda en el historial del archivo.
+- Rutas: `GET /nunca-facturar`, `POST /nunca-facturar {cuit, nombre, motivo}`, `POST /nunca-facturar/quitar {cuit}`.
+- Motivos: Empleado, Familia o amigos, Personal (no es venta), Otro.
+- **Análisis:** marca `todas[i].excluido` y devuelve `nuncaFacturar: {ok, marcadas, enLista}`.
+- **Facturación:** lee la lista una vez y saltea esas transferencias antes de los demás controles («En la lista de nunca facturar»). Si la lista no se puede leer, respeta lo elegido en la app; acá no hay riesgo de duplicar.
+- `/estado-extracto` agrega `omitidasNunca`.
+
+**App (FacturacionML, sw v54):**
+- En cada renglón del extracto, «No facturar nunca» abre una hoja con el nombre, el CUIT y el motivo; «Quitar de «nunca facturar»» la saca.
+- Lo de la lista aparece «No facturar», destildado, con el motivo en el detalle; no se puede tildar y queda fuera de «Facturar todo».
+- Aviso «N transferencias están en tu lista de nunca facturar».
+- Menú → «Nunca facturar (empleados, familia…)» muestra la lista completa con «Quitar».
+- **En el sitio de PRUEBA la lista se simula en el equipo** (`js/config.js`): antes, cualquier POST que la simulación no conocía salía al servidor real.
+
+**Actualización automática (`js/actualizador.js`, reemplaza el registro del Service Worker que estaba en `index.html`):**
+- Busca versión nueva al abrir, al volver a la app (pestaña visible o foco) y cada 10 minutos.
+- Cuando la versión nueva toma el control:
+  - si no estás trabajando, recarga sola («Actualizando a la versión nueva…»);
+  - si estás revisando un extracto, emitiendo, con una hoja o modal abierto o con datos cargados en un formulario, muestra «Hay una versión nueva… Actualizar ahora» y se actualiza sola apenas quedás libre.
+- La primera instalación no recarga.
+- El Service Worker responde su versión (`message: "version"`) y el menú la muestra: «Versión de la app: v54 · al día» o «hay una nueva».
+- **Error encontrado y corregido por la prueba:** la detección de «estás trabajando» contaba indicadores de carga que viven escondidos en la página (banner de servidor despertando, velo de NC), así que la app se creía siempre ocupada y nunca se actualizaba sola. Ahora solo cuenta lo que realmente se ve.
+
+**Pruebas:**
+- Servidor `scripts/probar-nunca-facturar.js` **13/13**.
+- App en navegador **19/19**:
+  - versión en el menú;
+  - Lucía ya en la lista y Nico agregado desde el renglón;
+  - en prueba no se escribe la lista real;
+  - no se tilda y «Facturar todo» la excluye;
+  - 9 tamaños (la etiqueta larga desbordaba a 1024 px: se acortó a «No facturar» con el motivo en el detalle);
+  - quitar, lista del menú y pedido sin Nico;
+  - **actualizador real:** con la app abierta se publicó localmente v55 y v56; revisando un extracto avisó sin recargar, al salir del extracto se actualizó sola a v55 y estando libre recargó sola a v56.
+- Regresión: Caja 22/22, Ornella 23/23, retenciones 22/22, remitos 41/41.
+
+**A tener en cuenta:** la primera vez (de v53 a v54) la actualización sigue siendo la de antes, al reabrir la app. Desde la v54 en adelante, cada publicación llega sola. **Regla de siempre:** cada cambio de la app sube `CACHE_NAME` en `sw.js` (próximo: v55).
