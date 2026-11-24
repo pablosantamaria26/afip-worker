@@ -4362,12 +4362,13 @@ async function generarReporteExtracto({ resultados, todasTransferencias, emailRe
     </div>
 
     <div style="padding:12px 32px 20px;color:#8BA4BC;font-size:11px;border-top:1px solid #E8EFF7;">
-      Generado el ${fecha} · Mercado Limpio
+      Generado el ${(() => { const f = String(fechaCorrida || todayISO()).slice(0, 10).split("-"); return f.length === 3 ? `${f[2]}/${f[1]}/${f[0]}` : String(fechaCorrida || ""); })()} · Mercado Limpio
     </div>
   </div>
 </div>`,
       attachments: [{
-        filename: `Conciliacion_${mesNombreCap.replace(/\s+/g, "_")}_${anioFecha}.xlsx`,
+        /* 24/11/2026: el nombre del mes ya trae el año («Noviembre de 2026») → antes salía «…_2026_2026.xlsx». */
+        filename: `Conciliacion_${mesNombreCap.replace(/\s+/g, "_")}${/\d{4}/.test(mesNombreCap) ? "" : "_" + anioFecha}.xlsx`,
         content: Buffer.from(xlsxBuffer).toString("base64")
       }]
     });

@@ -85,6 +85,15 @@ function reporteReal(sb, envios, fallarEnvio) {
   const m2 = envios.lista[0]; const wb2 = await leerAdj(m2); hoja = wb2.getWorksheet("Retenciones e Impuestos Banco");
   const nuevos19 = nov.movimientos.filter(m => m.fecha > "2026-11-15").length;
   t("2ª corrida con el extracto 1–19/11: solo lo del 16 al 19 es NUEVO; lo anterior va como «ya informado»", contar(hoja, "NUEVO") === nuevos19 && new RegExp(nuevos19 + " nuevos").test(m2.html), { nuevos: contar(hoja, "NUEVO"), esperado: nuevos19 });
+  t("el pie del email dice el día de la corrida (19/11), no la fecha del período (15/11)", /Generado el 19\/11\/2026/.test(m2.html) && !/Generado el 2026-11-15/.test(m2.html), (m2.html.match(/Generado el [^<·]*/) || [])[0]);
+  /* Se lee con SheetJS: ExcelJS, al releer, pierde los resultados que valen 0 (aunque el archivo trae <v>0</v>). */
+  const sinResultado = []; let formulas = 0;
+  const wbX = XLSX.read(Buffer.from(m2.attachments[0].content, "base64"), { cellFormula: true });
+  wbX.SheetNames.forEach(n => { const ws = wbX.Sheets[n]; Object.keys(ws).filter(a => a[0] !== "!" && ws[a].f).forEach(a => { formulas++; if (typeof ws[a].v !== "number") sinResultado.push(n + "!" + a); }); });
+  t("todas las fórmulas llevan el total ya calculado (se ven en la vista previa de Gmail/celular)", formulas > 0 && !sinResultado.length, { formulas, sinResultado: sinResultado.slice(0, 8) });
+  t("el adjunto se llama Conciliacion_Noviembre_de_2026.xlsx (sin el año repetido)", m2.attachments[0].filename === "Conciliacion_Noviembre_de_2026.xlsx", m2.attachments[0].filename);
+  const tot = []; hoja.eachRow(r => { if (r.getCell(1).value === "TOTAL") tot.push(r.getCell(7).value); });
+  t("el TOTAL retenido calculado coincide con la suma de los movimientos", tot.length === 1 && Math.abs(tot[0].result - nov.movimientos.filter(m => !/^PAGO_/.test(m.regimen)).reduce((s, m) => s + m.importe, 0)) < 0.01, tot);
   envios.lista = [];
   await reporteReal(sb, envios)({ ...base, impuestos: nov, fechaCorrida: "2026-11-19" });
   hoja = (await leerAdj(envios.lista[0])).getWorksheet("Retenciones e Impuestos Banco");
