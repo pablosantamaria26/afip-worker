@@ -914,3 +914,45 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Hoja «Ingresos no facturados y por qué» (propuesta, sin decidir).
 - Aviso de Supabase del 22/11: tabla sin RLS en gjeyvbidomxzofcdycya. Para identificarla hace falta un token de administración nuevo (el guardado venció).
 - CUIT de Martín.
+
+## 21. Hoja «Ingresos no facturados y por qué» en el reporte al contador — 24/11/2026 (PUBLICADO el 24/11/2026)
+
+**Pedido de Pablo:** que Sticco tenga, en cada corrida, el motivo de cada ingreso del banco que no lleva factura de Mercado Limpio. Sirve si ARCA cruza depósitos contra facturación.
+
+**Qué hace (`lib/ingresos-extracto.js`):**
+- Nueva hoja «Ingresos no facturados», entre «Extracto Bancario» y «Retenciones». Lista cada transferencia recibida con su situación y su respaldo.
+- Grupos:
+  - Facturada en esta corrida.
+  - Ya facturada antes.
+  - Facturada desde la Caja.
+  - Ingreso de Ornella, con su factura C.
+  - No es venta (lista de «nunca facturar»).
+  - A revisar (posible Ornella o posible pago de una factura de la Caja).
+  - Error al emitir.
+  - Sin facturar.
+- La suma de los grupos es el total recibido. No usa fórmulas, así que se ve completa en cualquier vista previa.
+- **El servidor recalcula cada motivo y no depende de la app.** Usa lo que pasó en la corrida, las facturas vigentes (por referencia, o CUIT + importe en el mes o el siguiente; las anuladas no cuentan), `Ornella.verificar`, `OtroCanal.verificar` y `Nunca.leer`.
+- Si una fuente no se puede consultar, la hoja lo avisa y esas transferencias quedan «Sin facturar» con la nota. Si la hoja entera falla, el reporte sale igual, sin ella.
+- Primero se reservan las facturas de esta corrida. Sin eso, una factura recién emitida podía justificar otra transferencia del mismo cliente por el mismo monto.
+- El mail suma una línea: «N sin factura de Mercado Limpio (…) · $X».
+
+**Otros cambios (`index.js`):**
+- Cada resultado del trabajo del extracto (emitido, omitido o con error) queda anotado con SU transferencia: `referencia`, `fechaTransf`, `montoTransf`. Lo hace un `try/finally` por transferencia, que corre también en cada `continue`.
+- «Extracto Bancario» corregida: con dos transferencias del mismo cliente, mostraba la fecha y el monto de la primera en ambas filas.
+
+**Pruebas:**
+- `scripts/probar-ingresos-extracto.js` 28/28, con datos ficticios.
+- `probar-impuestos-bancarios.js` 29/29 (reporte real: orden de hojas, línea del mail, fecha correcta en «Extracto Bancario»).
+- Ornella 23/23, Caja 22/22, nunca 13/13, remitos 41/41.
+- Ciclo del extracto corrido con dobles, sin ARCA: los resultados quedan anotados con su transferencia y la corrida termina.
+- **Ensayo local con los datos reales del 24/11** (solo lectura). Las 136 transferencias, $27.947.706,97, se reparten así:
+  - 49 facturadas hoy;
+  - 49 facturadas antes;
+  - 13 de Ornella ($4.633.400);
+  - 24 que no son venta ($130.912);
+  - 1 a revisar: Giménez $737.390,15, posible pago de FA-A-00005-00000141.
+- Revisada exportada a PDF desde Excel.
+
+**Publicado:** `main` = `3c1b5c9`, `/health` = `2026-11-INGRESOS-NO-FACTURADOS`; `/nunca-facturar` (25), `/historial` y `/facturas-remitos` responden bien. Se va a ver en la próxima corrida del extracto.
+
+**Lista de «nunca facturar»:** se sumó Martín (20296794768, empleado; no es Jonatan Ponce, el cliente, 20365563897). Total: 25.
