@@ -713,3 +713,73 @@ El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la
 - afip-worker `main` = `efa0016` (`/health` = `2026-11-RETENCIONES` en ~80 s; historial y consulta por remito OK).
 - FacturacionML `main` = `33fea0b` (sw v51, servido por Pages en ~45 s).
 - La primera corrida real del extracto ya manda el reporte al contador con copia a Pablo.
+
+## 17. No facturar lo que ya facturó Ornella (cuenta Santander compartida) — 24/11/2026 (ramas `ornella-conciliacion`, SIN publicar)
+
+**Pedido de Pablo:** al subir un extracto (completo o parcial) y facturar todo, que el sistema omita los ingresos que ya facturó Ornella.
+- Ornella es cotitular de la cuenta única Santander y factura sus alquileres desde Tiempo Libre: monotributo CUIT 27-33589911-9, PV 3, Factura C, Supabase `yckoaokosdoculwxuysd`.
+- Objetivo: «todo queda 100 % facturado sin duplicados en ningún sistema».
+
+**Estudio (solo lectura, datos reales):**
+- Ornella factura **una Factura C por pago** (`facturas.pago_id`).
+- El pago tiene fecha, importe, medio y documento del pagador, pero **no la referencia bancaria**.
+- Los importes se repiten entre huéspedes ($308.000, $336.000, incluso el mismo día). Por eso el importe solo no alcanza.
+- El DNI del pagador que carga Ornella está **dentro del CUIT** de quien transfiere.
+- Con importe + DNI + fecha (de 7 días antes a 3 después del pago), octubre y noviembre dan **17 de 17** emparejados sin ambigüedad (5 en octubre, 12 en noviembre) y ninguno de las otras 250 transferencias.
+
+**HALLAZGO — duplicados ya existentes (octubre 2026):** Mercado Limpio facturó desde el extracto 4 transferencias que eran alquileres de Ornella, ya facturados por ella:
+
+| Factura Mercado Limpio | CUIT | Importe | Factura de Ornella |
+|---|---|---|---|
+| A-00005-00000030 | 27-26152420-7 | $308.000 | C-11 |
+| B-00005-00000024 | 27-42879880-0 | $308.000 | C-12 |
+| A-00005-00000068 | 20-26748610-8 | $336.000 | C-13 |
+| B-00005-00000038 | 27-27546127-5 | $112.000 | C-14 |
+
+Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo con el contador.
+
+**Cómo funciona:**
+- **Base de Ornella:** función de solo lectura `ml_pagos_para_conciliar(desde, hasta, clave)` (`sql/2026-11-24-ornella-conciliacion.sql`).
+  - Devuelve solo fecha, importe, medio, documento y comprobantes C/estado de los pagos no-efectivo, en un rango de hasta 120 días.
+  - Clave verificada por huella SHA-256: la clave no está en la base ni en el repo.
+  - La clave pública ejecuta la función, pero no lee las tablas.
+  - Probada en PGlite: 9/9.
+- **Servidor (`lib/conciliar-ornella.js`):**
+  - `verificar` consulta el rango que cubre el extracto y `emparejar` marca cada transferencia como `ornella` (documento coincide) o `posible` (pago sin documento y candidato único). Un pago, una sola transferencia.
+  - **Análisis** (`procesarExtractoArchivo`): marca `t.ornella` y devuelve `ornella: {ok, deOrnella, posibles}`.
+  - **Facturación** (`procesarExtractoEnBackground`): vuelve a consultar **antes de emitir**.
+    - Lo de Ornella se omite («Ingreso de Ornella: lo factura ella»).
+    - Lo «posible» se omite salvo que Pablo lo haya tildado a mano (`forzarOrnella`).
+    - **Si no se puede consultar, no se emite nada** (falla cerrada, nunca duplicar).
+  - `/estado-extracto` agrega `omitidasOrnella`.
+- **App (FacturacionML, sw v52):**
+  - Aviso arriba de la lista («N transferencias son alquileres de Ornella…», o en rojo si no se pudo verificar).
+  - Etiqueta «De Ornella», con su comprobante en el detalle, sin poder tildarla.
+  - «¿De Ornella?» destildada; si se tilda a mano, avisa y va con `forzarOrnella`.
+  - «Facturar todo» las excluye.
+  - El resultado cuenta «(N por Ornella)».
+
+**Configuración (una vez, antes de publicar; instrucciones con la clave en `Afip-Worker/CONFIGURAR-CONEXION-ORNELLA.txt`, fuera del repo):**
+1. Correr el SQL en el SQL Editor del proyecto de Ornella.
+2. En Render (api-mercadolimpio), variable `ORNELLA_CLAVE`.
+
+`ORNELLA_SUPABASE_URL` y `ORNELLA_SUPABASE_KEY` tienen valores por defecto: la clave publishable es la misma que lleva la app de Ornella.
+
+**Pruebas:**
+- `scripts/probar-conciliar-ornella.js` **23/23**, con datos inventados (en el repo no hay DNI reales):
+  - documento dentro del CUIT (DNI de 7 y 8 dígitos);
+  - mismo día y mismo importe con distintos huéspedes;
+  - ventana de fechas;
+  - un pago, una transferencia;
+  - sin documento → posible, y con dos candidatos → no se adivina;
+  - pago sin factura;
+  - qué se hace al facturar;
+  - consulta con clave, sin clave y clave rechazada.
+- Validación con datos reales, fuera del repo: 17/17, incluidos los 4 duplicados de octubre.
+- App en navegador: **10/10** (9 tamaños; se corrigió una etiqueta larga que desbordaba en 320 y 1024 px).
+- Regresión: retenciones 22/22, remitos 41/41.
+
+**Límites:**
+- Si Ornella no carga el pago o lo carga con otro importe o documento, la transferencia no se reconoce como suya.
+- Pagos sin documento → «posible», nunca automático.
+- Pagos de Ornella en efectivo no pasan por el banco: no aplica.

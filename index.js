@@ -27,6 +27,7 @@ const ExcelJS  = require("exceljs");
 const { renderComprobanteHtml, generarPdf, nombreArchivoComprobante, fechaAR } = require("./lib/pdf-comprobante");
 const { montarFacturarRemito } = require("./lib/facturar-remito");
 const ImpBanco = require("./lib/impuestos-bancarios");
+const Ornella = require("./lib/conciliar-ornella");
 
 // ── Generador de PDF local (Chromium de puppeteer, A4 con paginación propia) ──
 async function crearPdfLocal(html, _fileName) {
@@ -3837,6 +3838,18 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
     return { ...m, yaFacturado };
   });
 
+  /* 24/11/2026: transferencias que son alquileres de Ornella (ya facturados por ella): se marcan y no se ofrecen para facturar. */
+  let ornellaInfo;
+  try {
+    const v = await Ornella.verificar(todasConEstado);
+    todasConEstado.forEach((m, i) => { if (v.marcas[i]) m.ornella = v.marcas[i]; });
+    ornellaInfo = { ok: true, deOrnella: v.marcas.filter(x => x && x.tipo === "ornella").length, posibles: v.marcas.filter(x => x && x.tipo === "posible").length, consultado: v.consultado };
+    console.log(`ℹ️ [Extracto] Ornella: ${ornellaInfo.deOrnella} de ella · ${ornellaInfo.posibles} posibles`);
+  } catch (eO) {
+    ornellaInfo = { ok: false, error: eO?.message || String(eO) };
+    console.warn("⚠️ [Extracto] No se pudo verificar contra la facturación de Ornella:", ornellaInfo.error);
+  }
+
   const chinos = todasConEstado.filter(m => m.esChino);
   const yaFact = todasConEstado.filter(m => m.yaFacturado).length;
   console.log(`✅ [Extracto] Total: ${todasConEstado.length} | Chinos: ${chinos.length} | Ya facturados: ${yaFact}`);
@@ -3848,6 +3861,7 @@ async function procesarExtractoArchivo(jobId, { filePath, mimeType, origName }) 
   job.transferencias = chinos;
   job.todas         = todasConEstado;
   job.impuestos     = impuestosLeidos;   // null si el extracto no era el Excel del banco (PDF/imagen)
+  job.ornella       = ornellaInfo;
 }
 
 // ── POST /procesar-extracto ─────────────────────────────────────
@@ -3887,7 +3901,7 @@ app.get("/estado-procesar/:jobId", (req, res) => {
   if (job.estado === "terminado") {
     return res.json({ ok: true, jobId: job.jobId, estado: "terminado",
       total: job.total, detectados: job.detectados,
-      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null });
+      transferencias: job.transferencias, todas: job.todas, impuestos: job.impuestos || null, ornella: job.ornella || null });
   }
   if (job.estado === "error") {
     return res.json({ ok: false, jobId: job.jobId, estado: "error", message: job.errorMsg });
@@ -4422,6 +4436,11 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
 
   let maxFechaUsada = pisoFecha; // se actualiza después de cada emisión exitosa
 
+  /* 24/11/2026: antes de emitir, se consulta la facturación de Ornella (cuenta compartida). Si no se puede, no se emite. */
+  let verifOrnella = null, errorOrnella = "";
+  try { verifOrnella = await Ornella.verificar(transferenciasOrdenadas); }
+  catch (eO) { errorOrnella = eO?.message || String(eO); console.warn("⚠️ [Extracto] Ornella no verificable, no se emite:", errorOrnella); }
+
   for (const t of transferenciasOrdenadas) {
     const cuitCliente = onlyDigits(String(t.cuit || ""));
     const monto       = Math.abs(Number(t.monto || 0));
@@ -4447,6 +4466,15 @@ async function procesarExtractoEnBackground(jobId, { transferencias, todasTransf
     if (cuitCliente.length !== 11 || monto <= 0) {
       job.resultados.push({ ok: false, nombre, cuit: cuitCliente, monto, error: "CUIT inválido o monto cero" });
       job.errores++;
+      job.progreso++;
+      continue;
+    }
+
+    const dOrn = Ornella.decidir(t, verifOrnella && verifOrnella.marcas[transferenciasOrdenadas.indexOf(t)], errorOrnella);
+    if (!dOrn.emitir) {
+      console.warn(`⚠️ [Extracto] NO EMITIDO (Ornella): ${nombre} | $${monto} | ${dOrn.resultado.motivo || dOrn.resultado.error}`);
+      job.resultados.push(Object.assign({ nombre, cuit: cuitCliente, monto, total: monto, pdfUrl: "" }, dOrn.resultado));
+      if (!dOrn.resultado.ok) job.errores++;
       job.progreso++;
       continue;
     }
@@ -4785,6 +4813,7 @@ app.get("/estado-extracto/:jobId", async (req, res) => {
     totalFacturado: job.totalFacturado,
     facturasEmitidas: emitidas,
     omitidas,
+    omitidasOrnella: job.resultados.filter(r => r.skipped && r.ornella).length,
     errores: job.errores,
     inicio: job.inicio,
     fin: job.fin || null,
