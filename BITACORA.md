@@ -792,3 +792,17 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - FacturacionML `main` = `d775f5d` (sw v52, Pages en ~75 s).
 - **Pendiente de decisión de Pablo con el contador:** los 4 duplicados de octubre (A-30, B-24, A-68, B-38).
 - **Reversión:** revertir `21ba34e..e1ac28a` en afip-worker y `d775f5d` en FacturacionML (subiendo sw a v53). La función en la base de Ornella se puede dejar o borrar con la línea de reversión del SQL.
+
+**24/11/2026 — Duplicados de octubre corregidos (con OK de Pablo):** 4 notas de crédito reales emitidas por el mismo camino que la app (`/anular-comprobante`, una por vez, sin reintentos; antes se verificó que ninguna estuviera anulada ni tuviera NC). Motivo: «Facturada por error: ingreso de Ornella (Tiempo Libre, cuenta compartida), ya facturado por ella con Factura C …».
+
+| Original | NC | CAE | Importe |
+|---|---|---|---|
+| A-00005-00000030 | NC-A-00005-00000001 | 86474249966247 | 08.000 |
+| B-00005-00000024 | NC-B-00005-00000001 | 86474250078512 | 08.000 |
+| A-00005-00000068 | NC-A-00005-00000002 | 86474250428798 | 36.000 |
+| B-00005-00000038 | NC-B-00005-00000002 | 86474250699317 | 12.000 |
+
+- Las 4 originales figuran anuladas.
+- Las NC son del 24/11/2026 (período noviembre) y sus PDF abren y nombran la factura original y el motivo.
+- Los emails fueron a la casilla de Mercado Limpio (no a los huéspedes).
+- Antes se revisó, solo lectura, julio–noviembre completo (22 facturas de Ornella contra 525 de Mercado Limpio): **no hay otros duplicados**.
