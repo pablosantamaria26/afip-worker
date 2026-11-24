@@ -714,7 +714,7 @@ El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la
 - FacturacionML `main` = `33fea0b` (sw v51, servido por Pages en ~45 s).
 - La primera corrida real del extracto ya manda el reporte al contador con copia a Pablo.
 
-## 17. No facturar lo que ya facturó Ornella (cuenta Santander compartida) — 24/11/2026 (ramas `ornella-conciliacion`, SIN publicar)
+## 17. No facturar lo que ya facturó Ornella (cuenta Santander compartida) — 24/11/2026 (PUBLICADO el 24/11/2026)
 
 **Pedido de Pablo:** al subir un extracto (completo o parcial) y facturar todo, que el sistema omita los ingresos que ya facturó Ornella.
 - Ornella es cotitular de la cuenta única Santander y factura sus alquileres desde Tiempo Libre: monotributo CUIT 27-33589911-9, PV 3, Factura C, Supabase `yckoaokosdoculwxuysd`.
@@ -783,3 +783,12 @@ Total **$1.064.000**. No se tocaron: anularlas (NC) es una decisión de Pablo co
 - Si Ornella no carga el pago o lo carga con otro importe o documento, la transferencia no se reconoce como suya.
 - Pagos sin documento → «posible», nunca automático.
 - Pagos de Ornella en efectivo no pasan por el banco: no aplica.
+
+**Publicado el 24/11/2026 con OK de Pablo:**
+- Pablo corrió el SQL en el proyecto de Ornella y cargó `ORNELLA_CLAVE` en Render.
+- Verificado sin la clave: la función existe y rechaza otra clave (401 «no autorizado»); la tabla `pagos` sigue cerrada para la clave pública.
+- afip-worker `main` = `e1ac28a` (`/health` = `2026-11-ORNELLA` en ~60 s).
+- Verificado en producción con un ANÁLISIS de solo lectura del extracto 1–19/11 (`/procesar-extracto`, no emite): `ornella.ok = true`, 14 pagos consultados (29/10–26/11), **12 transferencias marcadas** con sus C-16…C-27, 0 posibles, 121 transferencias; retenciones 23.
+- FacturacionML `main` = `d775f5d` (sw v52, Pages en ~75 s).
+- **Pendiente de decisión de Pablo con el contador:** los 4 duplicados de octubre (A-30, B-24, A-68, B-38).
+- **Reversión:** revertir `21ba34e..e1ac28a` en afip-worker y `d775f5d` en FacturacionML (subiendo sw a v53). La función en la base de Ornella se puede dejar o borrar con la línea de reversión del SQL.
