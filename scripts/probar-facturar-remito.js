@@ -11,6 +11,10 @@ const espera = ms => new Promise(r => setTimeout(r, ms));
 /* ── Supabase falso ─────────────────────────────────────────────── */
 function supabaseFalso() {
   const facturas = [], storage = {};
+  /* ctl.demora: latencia de red de cada consulta (como el Supabase real; sin ella la carrera de dos pedidos no se ve).
+     ctl.fallarStorage: el almacenamiento responde con error. */
+  const ctl = { demora: 0, fallarStorage: false };
+  const tarde = v => ctl.demora ? new Promise(r => setTimeout(() => r(v), ctl.demora)) : Promise.resolve(v);
   const q = (tabla) => {
     const st = { tabla, filtros: [], orden: null, sel: null };
     const api = {
@@ -18,14 +22,21 @@ function supabaseFalso() {
       in(col, vals) { st.filtros.push(r => vals.includes(r[col])); return api; },
       eq(col, v) { st.filtros.push(r => r[col] === v); return api; },
       order() { return api; },
-      then(res, rej) { try { const rows = (tabla === "facturas" ? facturas : []).filter(r => st.filtros.every(f => f(r))); res({ data: rows.map(r => ({ ...r })), error: null }); } catch (e) { rej(e); } },
+      then(res, rej) { try { const rows = (tabla === "facturas" ? facturas : []).filter(r => st.filtros.every(f => f(r))); tarde({ data: rows.map(r => ({ ...r })), error: null }).then(res); } catch (e) { rej(e); } },
     };
     return api;
   };
+  const err = m => ({ data: null, error: { message: m } });
   return {
-    facturas, storage,
+    facturas, storage, ctl,
     from: q,
-    storage: { from: () => ({ upload: async (p, buf) => { storage[p] = buf.toString(); return { data: {}, error: null }; }, download: async p => storage[p] ? { data: { text: async () => storage[p] }, error: null } : { data: null, error: { message: "no" } } }) },
+    storage: { from: () => ({
+      /* upsert:false = crear sin pisar (como Supabase: si existe responde «The resource already exists», 409) */
+      upload: async (p, buf, o) => { if (ctl.fallarStorage) return tarde(err("storage caído")); if (o && o.upsert === false && storage[p] != null) return tarde({ data: null, error: { message: "The resource already exists", statusCode: "409" } }); storage[p] = buf.toString(); return tarde({ data: {}, error: null }); },
+      download: async p => ctl.fallarStorage ? tarde(err("storage caído")) : tarde(storage[p] ? { data: { text: async () => storage[p] }, error: null } : err("no")),
+      remove: async ps => { ps.forEach(p => { delete storage[p]; }); return tarde({ data: {}, error: null }); },
+      list: async carpeta => ctl.fallarStorage ? tarde(err("storage caído")) : tarde({ data: Object.keys(storage).filter(k => k.startsWith(carpeta + "/")).map(k => ({ name: k.slice(carpeta.length + 1) })), error: null }),
+    }) },
     _storage: storage,
   };
 }
@@ -59,11 +70,17 @@ function appFalsa() {
 
   console.log("\n2 · Trabajo por remito: anti-duplicado, un solo trabajo a la vez, estados");
   const sb = supabaseFalso(); const { app, llamar } = appFalsa();
-  let emisiones = 0, fallarProxima = false, demora = 120;
+  let emisiones = 0, fallarProxima = false, fallarTrasCae = false, demora = 120;
   const facturarCore = async (body, extra) => {
     emisiones++;
     const pasos = ["preparando", "padron", "cae", "pdf", "guardado", "email"];
-    for (const p of pasos) { extra.onPaso(p); await espera(demora / pasos.length); if (p === "cae" && fallarProxima) { fallarProxima = false; return { status: 500, json: { message: "ARCA: error simulado" } }; } }
+    for (const p of pasos) {
+      extra.onPaso(p); await espera(demora / pasos.length);
+      if (p === "cae" && fallarProxima) { fallarProxima = false; return { status: 500, json: { message: "ARCA: error simulado" } }; }
+      /* como el real: el comprobante que se va a pedir se anota ANTES de pedirlo; el CAE, apenas llega */
+      if (p === "cae" && extra.onIntento) { await extra.onIntento({ nro: 1000 + emisiones, pv: 5, tipo: 1 }); await extra.onIntento({ autorizado: true, cae: "7" + emisiones, nro: 1000 + emisiones }); }
+      if (p === "pdf" && fallarTrasCae) { fallarTrasCae = false; return { status: 500, json: { message: "falló el guardado después del CAE (simulado)" } }; }
+    }
     const comp = "FA-00005-" + String(1000 + emisiones).padStart(8, "0");
     sb.facturas.push({ comprobante: comp, nro_factura: 1000 + emisiones, punto_venta: 5, cae: "7" + emisiones, cbte_tipo: 1, total: body.total, pdf_url: "https://x/" + comp + ".pdf", fecha: "2026-11-19", email_to: body.emailCliente || "", email_status: body.emailCliente ? "sent" : "skipped", email_error: "", remito_ref: extra.remitoRef, origen: extra.origen });
     return { status: 200, json: { ok: true, facturas: [{ comprobante: comp, nroFactura: 1000 + emisiones, cae: "7" + emisiones, total: body.total, pdfUrl: "https://x/" + comp + ".pdf" }], emailEnviado: !!body.emailCliente, emailError: body.emailCliente ? "" : "sin email", remito: extra.remitoRef } };
@@ -120,6 +137,76 @@ function appFalsa() {
   const { app: a3, llamar: l3 } = appFalsa(); montarFacturarRemito(a3, { facturarCore: async (b, x) => { recibido = b; return { status: 200, json: { ok: true, facturas: [] } }; }, supabase: () => sb, bucket: () => "b", condicionVentaDefault: "Cuenta Corriente" });
   await l3("POST", "/facturar-remito", { body: cuerpoCond }); await espera(50);
   assert(recibido && recibido.condicionVenta === "Cuenta Corriente" && recibido.cuitCliente === "20321023561" && recibido.items[0].codigo === "779", "al núcleo llegan: condición «Cuenta Corriente» por defecto, CUIT normalizado y el código de barras");
+
+  console.log("\n3 · Bloqueo por remito (24/11/2026): simultáneos, reinicios y verificación en ARCA");
+  const marcaDe = r => sb._storage["remitos/lock_" + r + ".json"];
+  const terminar = async () => { for (let i = 0; i < 40 && Object.values(sb._storage).length && [...(function* () { for (const k in sb._storage) if (k.startsWith("remitos/")) yield k; })()].some(k => JSON.parse(sb._storage[k]).estado === "procesando"); i++) await espera(50); await espera(80); };
+  sb.ctl.demora = 40;   // latencia como la de Supabase real
+  const antes1 = emisiones;
+  const [v1, v2] = await Promise.all([llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000030" } }), llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000030" } })]);
+  assert(v1.json.jobId && v1.json.jobId === v2.json.jobId && v2.json.repetida === true, "dos ventanas a la vez: la segunda recibe el MISMO trabajo (antes: dos trabajos y dos CAE)", [v1.json, v2.json]);
+  assert(!!marcaDe("QR-2026-000030") && JSON.parse(marcaDe("QR-2026-000030")).estado === "procesando", "mientras emite queda la marca del remito en Storage");
+  await espera(500); await terminar();
+  assert(emisiones - antes1 === 1 && sb.facturas.filter(f => f.remito_ref === "QR-2026-000030").length === 1, "se pidió CAE UNA sola vez y hay una sola factura del remito", { emisiones: emisiones - antes1 });
+  assert(!marcaDe("QR-2026-000030"), "al quedar guardada la factura, la marca se borra (la verdad pasa a ser `facturas`)");
+
+  /* Remito NUEVO del mismo cliente y mismo importe que uno ya facturado: se emite (antes un voucher pendiente por CUIT+importe lo podía frenar). */
+  const antes2 = emisiones;
+  r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000031" } }); await espera(500); await terminar();
+  assert(r.json.jobId && emisiones - antes2 === 1 && sb.facturas.filter(f => f.remito_ref === "QR-2026-000031").length === 1, "remito nuevo, mismo CUIT y mismo importe que uno facturado: se factura normalmente");
+
+  /* Reinicio a mitad de una emisión: marca huérfana de otra instancia, vieja. */
+  const vieja = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const huerfana = (r, extra) => { sb._storage["remitos/lock_" + r + ".json"] = JSON.stringify(Object.assign({ remito: r, jobId: "fac_viejo", instancia: "i_otra", estado: "procesando", inicio: vieja, actualizado: vieja, cuit: "20321023561", total: 50, intento: null }, extra)); };
+  let arca = { existe: false }, consultasArca = 0, arcaFalla = false;
+  const { app: a4, llamar: l4 } = appFalsa();
+  montarFacturarRemito(a4, { facturarCore, supabase: () => sb, bucket: () => "b", comprobanteEnArca: async (pv, tipo, nro) => { consultasArca++; if (arcaFalla) throw new Error("ARCA no responde"); return arca; } });
+
+  huerfana("QR-2026-000040", { intento: null });
+  let n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000040" } }); await espera(500); await terminar();
+  assert(r.json.jobId && emisiones - n0 === 1 && consultasArca === 0, "se cortó ANTES de pedir el CAE: se suelta y se emite (sin consultar ARCA)", r.json);
+
+  huerfana("QR-2026-000041", { intento: { nro: 1500, pv: 5, tipo: 1 } }); arca = { existe: true, docNro: "20321023561", total: 50, cae: "8888" };
+  n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000041" } });
+  assert(r.status === 409 && r.json.revisar && emisiones === n0 && consultasArca === 1, "se cortó después de pedir el comprobante 1500 y ARCA LO TIENE: 409 «revisar», no se emite otra", r.json);
+  assert(JSON.parse(marcaDe("QR-2026-000041")).estado === "autorizado_sin_guardar" && /CAE 8888/.test(r.json.message), "la marca queda «autorizado sin guardar» con el CAE que informó ARCA");
+  let fl = await l4("GET", "/facturas-remitos", { query: { remitos: "QR-2026-000041,QR-2026-000030" } });
+  assert(fl.json.bloqueos["QR-2026-000041"].estado === "revisar" && fl.json.facturas["QR-2026-000030"].length === 1 && !fl.json.bloqueos["QR-2026-000030"], "la consulta en lote informa el bloqueo «revisar» (y no lo confunde con un remito pendiente)", fl.json);
+  n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000041" } });
+  assert(r.status === 409 && emisiones === n0, "un reintento posterior sigue frenado (no emite nunca por las dudas)");
+
+  huerfana("QR-2026-000042", { intento: { nro: 1501, pv: 5, tipo: 1 } }); arca = { existe: false };
+  n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000042" } }); await espera(500); await terminar();
+  assert(r.json.jobId && emisiones - n0 === 1, "ARCA confirma que ese comprobante NO existe: se suelta y se emite una vez", r.json);
+
+  huerfana("QR-2026-000043", { intento: { nro: 1502, pv: 5, tipo: 1 } }); arcaFalla = true;
+  n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000043" } });
+  assert(r.status === 503 && emisiones === n0 && !!marcaDe("QR-2026-000043"), "si ARCA no responde, no se emite y la marca se conserva", r.json);
+  arcaFalla = false;
+
+  const reciente = new Date().toISOString();
+  huerfana("QR-2026-000044", { inicio: reciente, actualizado: reciente });
+  n0 = emisiones; r = await l4("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000044" } });
+  assert(r.status === 409 && r.json.enCurso && emisiones === n0, "marca reciente de OTRA instancia (deploy a mitad): «en curso», no se emite", r.json);
+  fl = await l4("GET", "/factura-remito/:remito", { params: { remito: "QR-2026-000044" } });
+  assert(fl.json.bloqueo && fl.json.bloqueo.estado === "en_curso" && !fl.json.facturas.length, "la consulta por remito lo informa como «en curso»", fl.json);
+
+  /* Falla DESPUÉS del CAE: la marca queda para revisar; falla ANTES: se suelta y se puede reintentar. */
+  fallarTrasCae = true; n0 = emisiones;
+  r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000045" } }); await espera(500); await terminar();
+  assert(JSON.parse(marcaDe("QR-2026-000045") || "{}").estado === "autorizado_sin_guardar", "falló el guardado después del CAE: la marca queda «autorizado sin guardar»");
+  r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000045" } });
+  assert(r.status === 409 && r.json.revisar && emisiones - n0 === 1, "reintentar ese remito: 409 «revisar», no se pide otro CAE", r.json);
+  fallarProxima = true;
+  r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000046" } }); await espera(500); await terminar();
+  assert(!marcaDe("QR-2026-000046"), "ARCA rechazó (sin CAE): la marca se suelta");
+  n0 = emisiones; r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000046" } }); await espera(500); await terminar();
+  assert(r.json.jobId && emisiones - n0 === 1, "y el reintento emite normalmente");
+
+  sb.ctl.fallarStorage = true; n0 = emisiones;
+  r = await llamar("POST", "/facturar-remito", { body: { ...cuerpo, remito: "QR-2026-000047" } });
+  assert(r.status === 503 && emisiones === n0, "si no se puede registrar el bloqueo, no se emite (503)", r.json);
+  sb.ctl.fallarStorage = false; sb.ctl.demora = 0;
 
   console.log(`\n${ok} bien · ${mal} mal`); process.exit(mal ? 1 : 0);
 })().catch(e => { console.error("ERROR", e); process.exit(1); });

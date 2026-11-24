@@ -1379,6 +1379,9 @@ async function facturarCore(body, extra = {}) {
   const req = { body: body || {} };
   const paso = typeof extra.onPaso === "function" ? extra.onPaso : () => {};
   const remitoRef = extra.remitoRef ? String(extra.remitoRef) : "";
+  /* 24/11/2026: con remito, cada intento se anota en la marca del remito ANTES de pedir el CAE (lib/facturar-remito.js).
+     Si no se puede anotar, no se pide: sin esa constancia, un corte dejaría sin saber si ARCA autorizó. */
+  const intentoRemito = typeof extra.onIntento === "function" ? extra.onIntento : async () => {};
   let _pendienteId = null;
   try {
     paso("preparando");
@@ -1428,10 +1431,11 @@ async function facturarCore(body, extra = {}) {
     const { tipo: tipoFactura, condId: condIvaReceptorId } = comprobanteParaReceptor(rec);
 
     const subtotalCalc = sumItemsBruto(allItems);
-    /* Remito: si ya está facturado se devuelve esa factura (nunca una segunda); si ARCA autorizó una del mismo cliente e
-       importe que no llegó a guardarse, se frena y se avisa. Si la consulta falla, se frena también (mejor que duplicar). */
+    /* Remito: si ya está facturado se devuelve esa factura (nunca una segunda). Si la consulta falla, se frena (mejor que duplicar).
+       24/11/2026: ya no se frena por «mismo cliente e importe» (bloqueaba un remito NUEVO idéntico a otro): la emisión
+       interrumpida de ESTE remito la resuelve su marca, que guarda el comprobante pedido a ARCA. */
     if (remitoRef) {
-      const dup = await facturaRemitoExistente(remitoRef, { cuitCliente, total: totalFinalIn > 0 ? totalFinalIn : subtotalCalc });
+      const dup = await facturaRemitoExistente(remitoRef);
       if (dup.facturas.length) {
         return { status: 200, json: { ok: true, yaFacturado: true, remito: remitoRef, facturas: dup.facturas, receptor: { cuit: cuitCliente, nombre: rec.nombre },
           mensaje: "Este remito ya estaba facturado: " + dup.facturas.map(f => f.comprobante).join(", ") + ". No se emitió otra." } };
@@ -1538,6 +1542,7 @@ async function facturarCore(body, extra = {}) {
       let nro, result;
       for (let intento = 0; intento <= 2; intento++) {
         nro = (await afip.ElectronicBilling.getLastVoucher(pv, tipoFactura)) + 1;
+        if (remitoRef) await intentoRemito({ nro, pv, tipo: tipoFactura, parte: i + 1, pendienteId: _pendienteId, en: new Date().toISOString() });
         const voucherData = {
           CantReg: 1, PtoVta: pv, CbteTipo: tipoFactura, Concepto: 1,
           DocTipo: 80, DocNro: Number(cuitCliente),
@@ -1554,6 +1559,8 @@ async function facturarCore(body, extra = {}) {
             try { await supabase.from("afip_vouchers_pendientes").update({ estado: "afip_ok", cae: String(result.CAE), nro_comprobante: nro, punto_venta: pv, updated_at: new Date().toISOString() }).eq("id", _pendienteId); }
             catch (uErr) { console.warn("⚠️ [Remito] marca afip_ok:", uErr?.message); }
           }
+          /* Con el CAE en la mano nada puede cortar la emisión: si la marca no se actualiza, igual se guarda la factura. */
+          if (remitoRef) { try { await intentoRemito({ autorizado: true, cae: String(result.CAE), nro, pv, tipo: tipoFactura }); } catch (mErr) { console.warn("⚠️ [Remito] marca autorizado:", mErr?.message); } }
           break; // éxito
         } catch (afipErr) {
           const msg = String(afipErr?.message || "");
@@ -1753,7 +1760,12 @@ app.post("/facturar", async (req, res) => {
 });
 
 /* Facturación de remitos desde la Caja de Queruclor (19/11/2026): trabajo en segundo plano + anti-duplicado por remito. */
-montarFacturarRemito(app, { facturarCore, supabase: () => supabase, bucket: () => SUPABASE_STORAGE_BUCKET, condicionVentaDefault: "Cuenta Corriente" });
+montarFacturarRemito(app, { facturarCore, supabase: () => supabase, bucket: () => SUPABASE_STORAGE_BUCKET, condicionVentaDefault: "Cuenta Corriente",
+  /* Emisión interrumpida: ¿ARCA tiene ESE comprobante? (una sola consulta, solo en ese caso raro) */
+  comprobanteEnArca: async (pv, tipo, nro) => {
+    const info = await afip.ElectronicBilling.getVoucherInfo(Number(nro), Number(pv), Number(tipo));
+    return info ? { existe: true, docNro: String(info.DocNro || ""), total: Number(info.ImpTotal || 0), cae: String(info.CodAutorizacion || info.CAE || "") } : { existe: false };
+  } });
 
 // ── POST /regenerar-pdf ─────────────────────────────────────────
 // Regenera el PDF de una factura que quedó sin PDF (ej: límite de plan SDK).

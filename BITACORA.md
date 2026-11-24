@@ -576,3 +576,54 @@ Reversión: `git revert` del merge y push (las columnas nuevas en `facturas` pue
 **Cambios en `lib/pdf-comprobante.js` (solo presentación):** se piden las cuatro fuentes con `document.fonts.load()` antes de paginar (con tope de 4 s); columnas A con código: 22 / producto / 11 / 22 / 24 / 11 / 25 mm (producto ≈ 73 mm), B: 22 / producto / 12 / 27 / 30; renglones 8,6 pt, relleno 1,15 × 1,8 mm, descripción siempre alineada a la izquierda (antes, con la columna de código, quedaba a la derecha); encabezado de la primera hoja, bloque de cliente, encabezado de continuación y bloque «continúa» más compactos. Nada fiscal cambia.
 
 **Medido con los 21 renglones reales de la 141:** 4 hojas (3/7/7/4) → 2 hojas (12/9). 40 renglones con nombres largos: 8 hojas → 3 (11/21/8). B sin código, 25 renglones: 3 → 2 (21/4). `scripts/probar-pdf.js` + `scripts/verificar-pdf.py`: TODO OK en los 20 casos (igual que antes del cambio). `scripts/probar-facturar-remito.js` 22/22.
+
+## 15. Remitos ya facturados: bloqueo por remito que resiste dos ventanas y reinicios — 24/11/2026 (rama `remito-estado`, SIN publicar)
+
+**Pedido de Pablo:** al volver a entrar a un cliente, la Caja seguía ofreciendo facturar un remito que ya tenía factura oficial. La protección tenía que funcionar también en el servidor, con dos ventanas o pedidos simultáneos, sin identificar el remito solo por CUIT e importe.
+
+**Causas comprobadas en este servidor (reproducidas contra el código publicado `b802608`, sin red ni ARCA):**
+1. **Dos pedidos simultáneos del mismo remito emitían dos facturas.** En `POST /facturar-remito` el bloqueo en memoria (`porRemito`) se tomaba recién *después* de consultar `facturas`, que es asíncrono. Con la latencia real de Supabase (40 ms simulados), dos ventanas pasaban las dos: dos trabajos distintos y dos pedidos de CAE (`repro_carrera.js`: «veces que se llegó a pedir CAE: 2 · facturas del remito: 2»).
+2. **La emisión interrumpida se resolvía por «mismo cliente e importe ±$2 en el mes»** (`afip_vouchers_pendientes`), que además podía frenar un remito NUEVO idéntico a otro.
+
+La parte de la Caja está en la bitácora del ecosistema (`Queruclor/docs/BITACORA-ECOSISTEMA.md`, 24/11/2026).
+
+**Cambio (`lib/facturar-remito.js` + 3 enganches en `index.js`):**
+- El bloqueo en memoria se toma **antes de cualquier espera**: un segundo pedido recibe el mismo `jobId` (`repetida: true`).
+- **Marca por remito en Storage** (`remitos/lock_<REMITO>.json`, bucket de los PDF), creada con `upsert:false`. Si ya existe, otro pedido la tiene: es atómico también entre dos instancias, por ejemplo durante un deploy.
+  - Guarda el comprobante que se va a pedir a ARCA (`nro`, `pv`, `tipo`) **antes** de pedirlo, y el CAE apenas llega.
+  - Se borra cuando la factura quedó en `facturas` (que pasa a ser la verdad) o cuando falló antes del CAE.
+  - Si falló **después** del CAE, queda «autorizado sin guardar» y frena todo reintento.
+  - Si no se puede escribir la marca antes de pedir el CAE, no se pide: sin esa constancia, un corte dejaría sin saber si ARCA autorizó.
+- **Marca huérfana** (el servidor se reinició a mitad), según el caso:
+  - Sin comprobante anotado: se cortó antes del CAE. Se suelta.
+  - Con comprobante anotado: se pregunta a ARCA por **ese** comprobante (`getVoucherInfo`, una sola consulta y solo en este caso raro).
+    - Si existe con el CUIT del cliente: 409 «revisar», nunca se emite otra.
+    - Si no existe: se suelta y se emite.
+    - Si ARCA no responde: 503 y no se emite.
+  - Una marca reciente de **otra** instancia se informa como «en curso», hasta 5 minutos.
+- `facturarCore` ya no frena un remito por «mismo cliente e importe» (`facturaRemitoExistente` sin CUIT ni total). Se sigue registrando la intención en `afip_vouchers_pendientes`, igual que antes.
+- `GET /facturas-remitos` agrega `bloqueos: { remito: { estado: en_curso | sin_confirmar | revisar, mensaje } }`, con una sola lectura de la carpeta de marcas, que queda casi vacía. `GET /factura-remito/:remito` agrega `bloqueo`.
+- Nada fiscal cambia: misma emisión, mismo PDF, mismo email.
+
+**Pruebas (`scripts/probar-facturar-remito.js`, sin red ni ARCA): 41/41** (24 de antes + 17 nuevas). El Supabase falso ahora se comporta como el real: crea sin pisar, borra, lista y tiene latencia. Casos nuevos:
+- dos ventanas a la vez: un solo trabajo, un CAE y una factura;
+- marca creada mientras emite y borrada al guardar;
+- remito nuevo con mismo CUIT e importe: se factura;
+- corte antes del CAE: se suelta y se emite;
+- corte después del CAE, ARCA lo tiene: 409 «revisar», no emite, y la consulta en lote lo informa;
+- ARCA dice que no existe: emite una vez;
+- ARCA no responde: 503;
+- marca reciente de otra instancia: «en curso»;
+- falla después del CAE: queda «revisar»;
+- falla antes del CAE: se suelta y el reintento emite;
+- Storage caído: 503, no emite.
+
+**Límites:**
+- Una factura partida (más de 25 renglones) que falle en la 2ª parte queda con la 1ª guardada: la consulta por remito la muestra como facturada. Es el comportamiento previo y la Caja no tiene remitos de ese tamaño.
+- Resolver un «revisar» es manual: importar el comprobante con `/importar-comprobante-afip` o revisar el historial, y borrar la marca.
+
+**Publicación (necesita OK de Pablo):**
+1. Merge `remito-estado` → `main` = deploy en Render. La versión no se cambió.
+2. Después, la Caja (v71).
+
+El servidor nuevo es compatible con la Caja publicada (solo agrega campos), y la Caja nueva funciona con el servidor publicado: sin `bloqueos`, cada remito se ve como pendiente o facturado, como hoy. **Reversión:** revertir el merge. Las marcas que queden en `remitos/` no molestan al código viejo, que no las lee.
